@@ -1,5 +1,6 @@
 """GTK Layer Shell cursor sensor for detecting cursor at top edge."""
 
+import logging
 import threading
 from typing import Callable, Optional
 import gi
@@ -9,6 +10,9 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("GtkLayerShell", "0.1")
 
 from gi.repository import Gtk, Gdk, GtkLayerShell, GLib  # type: ignore
+
+
+log = logging.getLogger("waybar-pilot")
 
 
 class CursorSensor(Gtk.Window):
@@ -178,6 +182,10 @@ class CursorSensor(Gtk.Window):
         """Emit reveal event once when the cursor reaches the top edge."""
         if not self._trigger_active:
             self._trigger_active = True
+            log.info(
+                "Sensor %s: reveal triggered at top edge",
+                self._monitor_name,
+            )
             self._event_callback("enter", self._monitor_name)
 
     def _on_enter(self, widget: Gtk.Widget, event: Gdk.EventCrossing) -> bool:
@@ -186,6 +194,11 @@ class CursorSensor(Gtk.Window):
         self._cancel_debounce()
 
         self._cursor_inside = True
+        log.info(
+            "Sensor %s: cursor entered tracking zone at y=%.1f",
+            self._monitor_name,
+            float(getattr(event, "y", -1.0)),
+        )
         if self._should_trigger(float(getattr(event, "y", self.SENSOR_HEIGHT))):
             self._activate_trigger()
         return False  # Don't stop propagation
@@ -205,6 +218,12 @@ class CursorSensor(Gtk.Window):
         self._cancel_debounce()
 
         self._cursor_inside = False
+        log.info(
+            "Sensor %s: cursor left tracking zone at y=%s (trigger_active=%s)",
+            self._monitor_name,
+            y,
+            self._trigger_active,
+        )
 
         # Only process leave if we were inside
         if self._trigger_active:
@@ -217,6 +236,11 @@ class CursorSensor(Gtk.Window):
                 )
                 self._debounce_timer.daemon = True
                 self._debounce_timer.start()
+            log.info(
+                "Sensor %s: scheduled debounced leave in %sms",
+                self._monitor_name,
+                self.DEBOUNCE_MS,
+            )
 
         return False  # Don't stop propagation
 
