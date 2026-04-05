@@ -170,9 +170,34 @@ class CursorSensor(Gtk.Window):
         with self._debounce_lock:
             self._debounce_timer = None
 
-        if not self._cursor_inside and self._trigger_active:
+        if self._trigger_active:
             self._trigger_active = False
             self._event_callback("leave", self._monitor_name, y)
+
+    def _schedule_leave(self, y: int, source: str) -> None:
+        """Schedule a debounced logical leave from the reveal threshold."""
+        if not self._trigger_active:
+            return
+
+        with self._debounce_lock:
+            if self._debounce_timer:
+                return
+
+            self._debounce_timer = threading.Timer(
+                self.DEBOUNCE_MS / 1000.0,
+                self._debounced_leave,
+                args=(y,),
+            )
+            self._debounce_timer.daemon = True
+            self._debounce_timer.start()
+
+        log.info(
+            "Sensor %s: scheduled debounced leave from %s in %sms (y=%s)",
+            self._monitor_name,
+            source,
+            self.DEBOUNCE_MS,
+            y,
+        )
 
     def _should_trigger(self, y: float) -> bool:
         """Return True when the cursor is at the reveal threshold."""
@@ -205,8 +230,15 @@ class CursorSensor(Gtk.Window):
 
     def _on_motion(self, widget: Gtk.Widget, event: Gdk.EventMotion) -> bool:
         """Trigger reveal when motion reaches the top edge threshold."""
-        if self._cursor_inside and self._should_trigger(float(getattr(event, "y", self.SENSOR_HEIGHT))):
+        if not self._cursor_inside:
+            return False
+
+        y = int(getattr(event, "y", self.SENSOR_HEIGHT))
+        if self._should_trigger(float(y)):
+            self._cancel_debounce()
             self._activate_trigger()
+        elif self._trigger_active:
+            self._schedule_leave(y, "motion")
         return False  # Don't stop propagation
 
     def _on_leave(self, widget: Gtk.Widget, event: Gdk.EventCrossing) -> bool:
@@ -225,22 +257,12 @@ class CursorSensor(Gtk.Window):
             self._trigger_active,
         )
 
-        # Only process leave if we were inside
+        # Physical leave means the cursor is definitely no longer at the top
+        # edge reveal threshold. Normalize the reported y away from 0 so the
+        # controller does not mistake this backup path for a genuine re-entry.
         if self._trigger_active:
-            # Start debounce timer - if we re-enter quickly, this gets cancelled
-            with self._debounce_lock:
-                self._debounce_timer = threading.Timer(
-                    self.DEBOUNCE_MS / 1000.0,
-                    self._debounced_leave,
-                    args=(y,)
-                )
-                self._debounce_timer.daemon = True
-                self._debounce_timer.start()
-            log.info(
-                "Sensor %s: scheduled debounced leave in %sms",
-                self._monitor_name,
-                self.DEBOUNCE_MS,
-            )
+            normalized_y = max(y, self.TRIGGER_HEIGHT + 1)
+            self._schedule_leave(normalized_y, "leave")
 
         return False  # Don't stop propagation
 

@@ -489,7 +489,7 @@ class AutohideController:
             del self._exit_timers[monitor_id]
 
         leave_enter_count = self._sensor_enter_counts.get(monitor_id, 0)
-        synthetic_top_leave = exit_y <= CursorSensor.TRIGGER_HEIGHT
+        top_edge_leave = exit_y <= self.SENSOR_REENTER_ZONE
 
         log.info(
             "Monitor %s: scheduling hide grace timer for %.2fs",
@@ -530,14 +530,13 @@ class AutohideController:
                 if relative_y <= self.SENSOR_REENTER_ZONE and cursor_monitor == monitor_id:
                     current_enter_count = self._sensor_enter_counts.get(monitor_id, 0)
                     if current_enter_count == leave_enter_count:
-                        if synthetic_top_leave:
-                            log.info(
-                                "Monitor %s: top-edge leave is still unresolved, rechecking in %.2fs",
-                                monitor_id,
-                                self.TOP_ZONE_RECHECK_INTERVAL,
-                            )
-                            schedule_timer(self.TOP_ZONE_RECHECK_INTERVAL)
-                            return
+                        log.info(
+                            "Monitor %s: top-edge leave is still unresolved, rechecking in %.2fs",
+                            monitor_id,
+                            self.TOP_ZONE_RECHECK_INTERVAL,
+                        )
+                        schedule_timer(self.TOP_ZONE_RECHECK_INTERVAL)
+                        return
 
                     log.info(
                         "Monitor %s: hide timer cancelled, cursor returned to top zone (y=%s)",
@@ -572,7 +571,7 @@ class AutohideController:
                 # keep short rechecks so the bar hides promptly once the cursor
                 # actually moves away. Non-top-edge leaves keep the original
                 # extended linger behavior for bar interaction.
-                if synthetic_top_leave:
+                if top_edge_leave:
                     log.info(
                         "Monitor %s: cursor still in bar zone after top-edge leave, rechecking in %.2fs (y=%s, threshold=%s)",
                         monitor_id,
