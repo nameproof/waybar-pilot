@@ -25,7 +25,8 @@ class CursorSensor(Gtk.Window):
     """
 
     # Sensor dimensions
-    SENSOR_HEIGHT = 10  # pixels - enter zone only
+    SENSOR_HEIGHT = 10  # pixels - physical tracking zone
+    TRIGGER_HEIGHT = 1  # pixels - logical reveal threshold at top edge
 
     # Debounce time to prevent flickering during cursor movement (milliseconds)
     DEBOUNCE_MS = 50
@@ -60,6 +61,7 @@ class CursorSensor(Gtk.Window):
 
         # Track state
         self._cursor_inside = False
+        self._trigger_active = False
         self._is_active = False
 
         # Debounce timer
@@ -140,16 +142,17 @@ class CursorSensor(Gtk.Window):
 
     def _setup_events(self) -> None:
         """Setup event handlers for enter/leave."""
-        # We only care about enter/leave, NOT button or motion events
-        # Motion events cause high CPU when cursor moves in sensor zone
+        # Motion events are only tracked inside the small sensor strip so we can
+        # separate the physical tracking zone from the reveal trigger threshold.
         self.add_events(
             Gdk.EventMask.ENTER_NOTIFY_MASK
             | Gdk.EventMask.LEAVE_NOTIFY_MASK
+            | Gdk.EventMask.POINTER_MOTION_MASK
         )
 
         self.connect("enter-notify-event", self._on_enter)
         self.connect("leave-notify-event", self._on_leave)
-        # Note: We intentionally don't connect motion events to avoid CPU spam
+        self.connect("motion-notify-event", self._on_motion)
 
     def _cancel_debounce(self) -> None:
         """Cancel any pending debounce timer."""
@@ -163,18 +166,34 @@ class CursorSensor(Gtk.Window):
         with self._debounce_lock:
             self._debounce_timer = None
 
-        if self._cursor_inside:
-            self._cursor_inside = False
+        if not self._cursor_inside and self._trigger_active:
+            self._trigger_active = False
             self._event_callback("leave", self._monitor_name, y)
+
+    def _should_trigger(self, y: float) -> bool:
+        """Return True when the cursor is at the reveal threshold."""
+        return y < self.TRIGGER_HEIGHT
+
+    def _activate_trigger(self) -> None:
+        """Emit reveal event once when the cursor reaches the top edge."""
+        if not self._trigger_active:
+            self._trigger_active = True
+            self._event_callback("enter", self._monitor_name)
 
     def _on_enter(self, widget: Gtk.Widget, event: Gdk.EventCrossing) -> bool:
         """Handle cursor entering sensor zone."""
         # Cancel any pending leave
         self._cancel_debounce()
 
-        if not self._cursor_inside:
-            self._cursor_inside = True
-            self._event_callback("enter", self._monitor_name)
+        self._cursor_inside = True
+        if self._should_trigger(float(getattr(event, "y", self.SENSOR_HEIGHT))):
+            self._activate_trigger()
+        return False  # Don't stop propagation
+
+    def _on_motion(self, widget: Gtk.Widget, event: Gdk.EventMotion) -> bool:
+        """Trigger reveal when motion reaches the top edge threshold."""
+        if self._cursor_inside and self._should_trigger(float(getattr(event, "y", self.SENSOR_HEIGHT))):
+            self._activate_trigger()
         return False  # Don't stop propagation
 
     def _on_leave(self, widget: Gtk.Widget, event: Gdk.EventCrossing) -> bool:
@@ -185,8 +204,10 @@ class CursorSensor(Gtk.Window):
         # Cancel any pending debounce
         self._cancel_debounce()
 
+        self._cursor_inside = False
+
         # Only process leave if we were inside
-        if self._cursor_inside:
+        if self._trigger_active:
             # Start debounce timer - if we re-enter quickly, this gets cancelled
             with self._debounce_lock:
                 self._debounce_timer = threading.Timer(
@@ -225,6 +246,7 @@ class CursorSensor(Gtk.Window):
             self.hide()
             self._is_active = False
             self._cursor_inside = False
+            self._trigger_active = False
             self._cancel_debounce()
 
     def destroy_sensor(self) -> None:
@@ -232,6 +254,7 @@ class CursorSensor(Gtk.Window):
         self._cancel_debounce()
         self._is_active = False
         self._cursor_inside = False
+        self._trigger_active = False
         self.destroy()
 
     @property

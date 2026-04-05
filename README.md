@@ -15,7 +15,7 @@ https://github.com/user-attachments/assets/55fc5541-eec3-4c07-b1bc-c15e5e6252a7
 ## Features
 
 - **Auto-hide on overlap**: Automatically hides waybar when a window overlaps with the bar area
-- **Cursor reveal**: Shows waybar when the cursor approaches the top of the screen using event-driven sensors
+- **Cursor reveal**: Shows waybar when the cursor touches the top edge of the screen using event-driven sensors
 - **Multi-monitor support**: Per-monitor configuration (autohide vs always-show)
 - **Fullscreen awareness**: Disables cursor sensors during fullscreen
 - **Hysteresis**: Different thresholds for showing (hard) vs keeping (easy) - prevents flicker
@@ -93,11 +93,14 @@ exec-once = sleep 2 && waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--bar-height` | Waybar height in pixels | `26` |
-| `--overlap` | Window overlap detection threshold in pixels | `20` |
+| `--overlap` | Extra pixels below the bar used for overlap and leave detection | `20` |
 | `--procname` | Process name to manage | `waybar` |
 | `--hide-monitors` | Comma-separated monitor selectors for autohide (`DP-1`, `ABC123`) | All monitors |
 | `--show-monitors` | Comma-separated monitor selectors to always show (disable autohide) | None |
 | `--initial-state` | Initial state for hide-monitors: `0`=hidden or `1`=visible | `0` |
+
+Reveal notes:
+`CursorSensor.TRIGGER_HEIGHT` is currently hardcoded to `1`, so showing only triggers at the top edge even though the physical sensor remains taller for stable leave detection.
 
 ### Examples
 

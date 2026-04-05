@@ -292,7 +292,7 @@ Examples:
         "--overlap",
         type=_non_negative_int,
         default=20,
-        help="Window overlap detection threshold in pixels (default: 20)"
+        help="Extra pixels below the bar used for overlap and leave detection (default: 20)"
     )
     parser.add_argument(
         "--procname",
