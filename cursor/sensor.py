@@ -108,14 +108,14 @@ class CursorSensor(Gtk.Window):
         log = logging.getLogger("waybar-pilot")
         
         # Set size - full width, sensor height
-        log.info(f"Setting sensor size: {self._monitor_width}x{self.SENSOR_HEIGHT}")
+        log.debug(f"Setting sensor size: {self._monitor_width}x{self.SENSOR_HEIGHT}")
         self.set_default_size(self._monitor_width, self.SENSOR_HEIGHT)
         self.set_size_request(self._monitor_width, self.SENSOR_HEIGHT)
         
         # Log the actual window size after setting
         actual_width = self.get_allocated_width()
         actual_height = self.get_allocated_height()
-        log.info(f"Sensor window allocated size after set: {actual_width}x{actual_height}")
+        log.debug(f"Sensor window allocated size after set: {actual_width}x{actual_height}")
 
         # Use RGBA visual for transparency
         screen = self.get_screen()
@@ -191,7 +191,7 @@ class CursorSensor(Gtk.Window):
             self._debounce_timer.daemon = True
             self._debounce_timer.start()
 
-        log.info(
+        log.debug(
             "Sensor %s: scheduled debounced leave from %s in %sms (y=%s)",
             self._monitor_name,
             source,
@@ -207,7 +207,7 @@ class CursorSensor(Gtk.Window):
         """Emit reveal event once when the cursor reaches the top edge."""
         if not self._trigger_active:
             self._trigger_active = True
-            log.info(
+            log.debug(
                 "Sensor %s: reveal triggered at top edge",
                 self._monitor_name,
             )
@@ -219,7 +219,7 @@ class CursorSensor(Gtk.Window):
         self._cancel_debounce()
 
         self._cursor_inside = True
-        log.info(
+        log.debug(
             "Sensor %s: cursor entered tracking zone at y=%.1f",
             self._monitor_name,
             float(getattr(event, "y", -1.0)),
@@ -250,7 +250,7 @@ class CursorSensor(Gtk.Window):
         self._cancel_debounce()
 
         self._cursor_inside = False
-        log.info(
+        log.debug(
             "Sensor %s: cursor left tracking zone at y=%s (trigger_active=%s)",
             self._monitor_name,
             y,
@@ -272,7 +272,7 @@ class CursorSensor(Gtk.Window):
         log = logging.getLogger("waybar-pilot")
         
         if not self._is_active:
-            log.info(f"Showing sensor for {self._monitor_name}")
+            log.debug(f"Showing sensor for {self._monitor_name}")
             self.show_all()
             self._is_active = True
             # Log actual window size after showing
@@ -283,7 +283,7 @@ class CursorSensor(Gtk.Window):
         import logging
         log = logging.getLogger("waybar-pilot")
         allocation = self.get_allocation()
-        log.info(f"Sensor window {self._monitor_name} actual size: {allocation.width}x{allocation.height}")
+        log.debug(f"Sensor window {self._monitor_name} actual size: {allocation.width}x{allocation.height}")
         return False  # Don't repeat
     
     def hide_sensor(self) -> None:
