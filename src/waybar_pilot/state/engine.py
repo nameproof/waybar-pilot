@@ -11,7 +11,7 @@ from ..hyprland.models import Client, CursorPosition, Monitor
 @dataclass
 class MonitorState:
     """Tracks state for a single monitor.
-    
+
     Maintains current visibility state and transition history.
     """
 
@@ -22,16 +22,16 @@ class MonitorState:
 
     def transition_to(self, new_state: WaybarState) -> bool:
         """Record a state transition.
-        
+
         Args:
             new_state: State to transition to
-            
+
         Returns:
             True if transition occurred, False if already in that state
         """
         if new_state == self.current_state:
             return False
-        
+
         self.current_state = new_state
         self.last_transition_time = time.time()
         self.transition_count += 1
@@ -45,14 +45,14 @@ class MonitorState:
 
 class StateEngine:
     """Pure logic engine for determining waybar visibility.
-    
+
     This class has no side effects - it only makes decisions based on
     the current state of the system (cursor position, windows, etc.).
     """
 
     def __init__(self, config: Config):
         """Initialize the state engine.
-        
+
         Args:
             config: Application configuration
         """
@@ -61,10 +61,10 @@ class StateEngine:
 
     def get_or_create_monitor_state(self, monitor_id: int) -> MonitorState:
         """Get existing state or create new one.
-        
+
         Args:
             monitor_id: Monitor ID
-            
+
         Returns:
             MonitorState for this monitor
         """
@@ -77,7 +77,7 @@ class StateEngine:
 
     def remove_monitor_state(self, monitor_id: int) -> None:
         """Remove state tracking for a monitor.
-        
+
         Args:
             monitor_id: Monitor ID
         """
@@ -142,12 +142,12 @@ class StateEngine:
         active_workspace_ids: List[int],
     ) -> List[Client]:
         """Find clients that overlap the bar area.
-        
+
         Args:
             clients: All clients to check
             monitor_id: Monitor ID to check
             active_workspace_ids: Currently active workspace IDs
-            
+
         Returns:
             List of clients overlapping the bar
         """
@@ -180,11 +180,11 @@ class StateEngine:
         monitors: List[Monitor],
     ) -> Optional[int]:
         """Determine which monitor the cursor is on.
-        
+
         Args:
             cursor: Cursor position
             monitors: Available monitors
-            
+
         Returns:
             Monitor ID if on a monitor, None otherwise
         """
@@ -262,7 +262,9 @@ class StateEngine:
             is_fullscreen = False
             if fullscreen_handler:
                 active_workspace = active_workspaces_by_monitor.get(monitor_id)
-                is_fullscreen = fullscreen_handler.is_fullscreen(monitor_id, active_workspace)
+                is_fullscreen = fullscreen_handler.is_fullscreen(
+                    monitor_id, active_workspace
+                )
 
             # Check if cursor is in sensor zone for this monitor
             in_sensor = cursor_in_sensor_zone.get(monitor_id, False)
@@ -296,7 +298,7 @@ class StateEngine:
 
     def get_all_states(self) -> Dict[int, WaybarState]:
         """Get current state for all tracked monitors.
-        
+
         Returns:
             Dict mapping monitor_id to current state
         """

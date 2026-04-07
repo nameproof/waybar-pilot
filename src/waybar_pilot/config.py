@@ -128,7 +128,9 @@ class Config:
 
         return resolved, unresolved
 
-    def _resolve_selector(self, selector: str, monitors: List["Monitor"]) -> List["Monitor"]:
+    def _resolve_selector(
+        self, selector: str, monitors: List["Monitor"]
+    ) -> List["Monitor"]:
         if _CONNECTOR_PATTERN.match(selector):
             return [m for m in monitors if m.name == selector]
         serial_matches = [m for m in monitors if (m.serial or "") == selector]
@@ -155,7 +157,7 @@ class Config:
 
         if bar_height <= 0:
             raise ValueError(f"bar-height must be positive, got {bar_height}")
-        
+
         if height_threshold < 0:
             raise ValueError(f"overlap must be non-negative, got {height_threshold}")
 

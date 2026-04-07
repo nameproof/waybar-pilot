@@ -32,7 +32,9 @@ class FullscreenHandler:
         """Initialize fullscreen handler."""
         self._states: Dict[int, FullscreenState] = {}  # monitor_id -> state
 
-    def get_or_create_state(self, monitor_id: int, monitor_name: str) -> FullscreenState:
+    def get_or_create_state(
+        self, monitor_id: int, monitor_name: str
+    ) -> FullscreenState:
         """Get or create state for a monitor."""
         if monitor_id not in self._states:
             self._states[monitor_id] = FullscreenState(
@@ -45,7 +47,9 @@ class FullscreenHandler:
         """Remove state for a monitor (e.g., when monitor is disconnected)."""
         self._states.pop(monitor_id, None)
 
-    def update_from_clients(self, clients: List[Client], monitors: List[Monitor]) -> None:
+    def update_from_clients(
+        self, clients: List[Client], monitors: List[Monitor]
+    ) -> None:
         """Update fullscreen state from current client list.
 
         This should be called when processing window-related events to
@@ -56,12 +60,17 @@ class FullscreenHandler:
             monitors: Current list of monitors
         """
         # Build set of monitors with fullscreen clients and their workspaces
-        fullscreen_by_monitor: Dict[int, tuple] = {}  # monitor_id -> (client_address, workspace_id)
+        fullscreen_by_monitor: Dict[
+            int, tuple
+        ] = {}  # monitor_id -> (client_address, workspace_id)
 
         for client in clients:
             if client.fullscreen and client.mapped and not client.hidden:
                 # Client is fullscreen on this monitor
-                fullscreen_by_monitor[client.monitor_id] = (client.address, client.workspace_id)
+                fullscreen_by_monitor[client.monitor_id] = (
+                    client.address,
+                    client.workspace_id,
+                )
 
         # Update state for all known monitors
         for monitor in monitors:
@@ -81,7 +90,9 @@ class FullscreenHandler:
                     state.fullscreen_workspace_id = None
                 state.last_change_time = time.time()
 
-    def is_fullscreen(self, monitor_id: int, active_workspace_id: Optional[int] = None) -> bool:
+    def is_fullscreen(
+        self, monitor_id: int, active_workspace_id: Optional[int] = None
+    ) -> bool:
         """Check if a monitor is currently in fullscreen mode.
 
         If active_workspace_id is provided, only returns True if the fullscreen
@@ -98,11 +109,11 @@ class FullscreenHandler:
         state = self._states.get(monitor_id)
         if not state or not state.is_fullscreen:
             return False
-        
+
         # If no active workspace specified, return the raw fullscreen state
         if active_workspace_id is None:
             return state.is_fullscreen
-        
+
         # Only consider it fullscreen if it's on the active workspace
         return state.fullscreen_workspace_id == active_workspace_id
 

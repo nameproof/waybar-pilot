@@ -152,12 +152,8 @@ class CursorPosition:
         """
         parts = s.strip().split(",")
         if len(parts) != 2:
-            raise ValueError(
-                f"Expected 'x, y' cursor position, got: {s.strip()!r}"
-            )
+            raise ValueError(f"Expected 'x, y' cursor position, got: {s.strip()!r}")
         try:
             return cls(x=int(parts[0].strip()), y=int(parts[1].strip()))
         except ValueError:
-            raise ValueError(
-                f"Non-integer cursor coordinates in: {s.strip()!r}"
-            )
+            raise ValueError(f"Non-integer cursor coordinates in: {s.strip()!r}")

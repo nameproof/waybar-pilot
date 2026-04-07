@@ -16,7 +16,7 @@ from ..config import Config, WaybarState
 @dataclass
 class WaybarInstance:
     """Manages a single waybar instance for a specific monitor.
-    
+
     Handles process lifecycle, config file management, and state tracking.
     """
 
@@ -49,7 +49,7 @@ class WaybarInstance:
             ch = text[i]
 
             # Track string boundaries (respecting escapes)
-            if ch == '"' and (i == 0 or text[i - 1] != '\\'):
+            if ch == '"' and (i == 0 or text[i - 1] != "\\"):
                 in_string = not in_string
                 result.append(ch)
                 i += 1
@@ -61,17 +61,17 @@ class WaybarInstance:
                 continue
 
             # Line comment
-            if ch == '/' and i + 1 < length and text[i + 1] == '/':
+            if ch == "/" and i + 1 < length and text[i + 1] == "/":
                 # Skip until end of line
                 i += 2
-                while i < length and text[i] != '\n':
+                while i < length and text[i] != "\n":
                     i += 1
                 continue
 
             # Block comment
-            if ch == '/' and i + 1 < length and text[i + 1] == '*':
+            if ch == "/" and i + 1 < length and text[i + 1] == "*":
                 i += 2
-                while i + 1 < length and not (text[i] == '*' and text[i + 1] == '/'):
+                while i + 1 < length and not (text[i] == "*" and text[i + 1] == "/"):
                     i += 1
                 i += 2  # skip closing */
                 continue
@@ -79,21 +79,21 @@ class WaybarInstance:
             result.append(ch)
             i += 1
 
-        return ''.join(result)
+        return "".join(result)
 
     def _create_config(self) -> Path:
         """Create a temporary config file for this monitor.
-        
+
         Returns:
             Path to the temporary config file
         """
         # Read base config
         config_dir = Path.home() / ".config" / "waybar"
         base_config = config_dir / "config.jsonc"
-        
+
         if not base_config.exists():
             base_config = config_dir / "config"
-        
+
         config_content = {}
         if base_config.exists():
             try:
@@ -101,52 +101,52 @@ class WaybarInstance:
                     raw = f.read()
                 stripped = self._strip_jsonc_comments(raw)
                 config_content = json.loads(stripped)
-            except (json.JSONDecodeError, IOError):
+            except json.JSONDecodeError, IOError:
                 config_content = {}
-        
+
         # Set output to this specific monitor
         config_content["output"] = self.monitor_name
-        
+
         # Create temp file with proper cleanup handling
         fd, path = tempfile.mkstemp(
             suffix=".jsonc",
             prefix=f"waybar-config-monitor-{self.monitor_id}-",
         )
         try:
-            with os.fdopen(fd, 'w') as f:
+            with os.fdopen(fd, "w") as f:
                 json.dump(config_content, f, indent=2)
         except OSError:
             os.close(fd)
             raise
-            
+
         return Path(path)
 
     def _start_process(self) -> None:
         """Start the waybar process."""
         import subprocess
-        
+
         self._config_path = self._create_config()
-        
+
         env = os.environ.copy()
-        env['WAYBAR_MONITOR_ID'] = str(self.monitor_id)
-        
+        env["WAYBAR_MONITOR_ID"] = str(self.monitor_id)
+
         self._process = subprocess.Popen(
             [self.config.waybar_proc, "-c", str(self._config_path)],
             env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        
+
         time.sleep(0.3)  # Give waybar time to start
         self._state = WaybarState.VISIBLE
 
     @property
     def pid(self) -> int:
         """Get the process ID.
-        
+
         Returns:
             Process ID
-            
+
         Raises:
             RuntimeError: If process is not running
         """
@@ -166,7 +166,7 @@ class WaybarInstance:
 
     def is_alive(self) -> bool:
         """Check if the waybar process is still running.
-        
+
         Returns:
             True if process is alive, False otherwise
         """
@@ -176,18 +176,18 @@ class WaybarInstance:
 
     def toggle(self) -> None:
         """Toggle waybar visibility by sending SIGUSR1.
-        
+
         Updates internal state tracking.
         """
         if not self.is_alive():
             raise RuntimeError("Cannot toggle: waybar process is not running")
-            
+
         try:
             os.kill(self.pid, signal.SIGUSR1)
             # Toggle internal state
             self._state = (
-                WaybarState.HIDDEN 
-                if self._state == WaybarState.VISIBLE 
+                WaybarState.HIDDEN
+                if self._state == WaybarState.VISIBLE
                 else WaybarState.VISIBLE
             )
         except ProcessLookupError:
@@ -215,7 +215,7 @@ class WaybarInstance:
                     self._process.wait()
             except Exception:
                 pass
-        
+
         self._cleanup()
 
     def _cleanup(self) -> None:

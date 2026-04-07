@@ -28,23 +28,9 @@ https://github.com/user-attachments/assets/55fc5541-eec3-4c07-b1bc-c15e5e6252a7
 
 - Python >= 3.14
 - Hyprland
-- `hyprctl`
 - Waybar
-- Python GI bindings with GTK 3
-- `GtkLayerShell` GI typelib
 
-## Runtime Dependencies
-
-Most of the app is standard-library Python, but runtime still depends on system-provided desktop pieces:
-
-- `hyprctl` for Hyprland state and cursor queries
-- `waybar` for the managed bars
-- `gi` / PyGObject so Python can import GTK
-- `GtkLayerShell` so the top-edge reveal sensors can exist
-
-That matters because these are usually installed by your distro, not by Python package metadata.
-
-You can verify the current machine with:
+You can verify the current machine for detailed reqs:
 
 ```bash
 make check-runtime
@@ -52,45 +38,37 @@ make check-runtime
 
 ## Installation
 
-This project now uses normal Python packaging via `pyproject.toml`.
-
 Recommended install for normal use:
 
 ```bash
 git clone https://github.com/nameproof/waybar-pilot.git
 cd waybar-pilot
 
-# Install as an isolated CLI app
-pipx install .
+pipx install --system-site-packages --python /usr/bin/python3 .
 ```
 
-Alternative with plain pip:
+Plain `pipx install .` is not recommended here because isolated virtualenvs may not see the system GTK / GI Python modules this project uses.
 
-```bash
-python3 -m pip install --user .
-```
-
-If `pipx` or `python3 -m pip` is missing, install your distro's package first.
+If `pipx` is missing, install your distro's package first.
 
 Uninstall:
 
 ```bash
 pipx uninstall waybar-pilot
+```
 
-# Or if you used pip instead
-python3 -m pip uninstall waybar-pilot
+Upgrade:
+
+```bash
+pipx upgrade --system-site-packages --python /usr/bin/python3 waybar-pilot
 ```
 
 ## Development
-
-Development tooling is now real instead of placeholder targets:
 
 - `make sync`: create or update the local `uv` environment for dev tools
 - `make lint`: run Ruff checks
 - `make format`: run Ruff formatting
 - `make run`: run the app from the source tree with system Python
-
-Installation is intentionally documented as direct `pipx` / `pip` commands instead of wrapping those commands in `make`.
 
 Setup:
 
@@ -105,8 +83,6 @@ make lint
 make format
 make run
 ```
-
-`make run` intentionally uses system Python with `PYTHONPATH=src` instead of the `uv` environment. On many Linux systems, `gi` and `GtkLayerShell` are available to system Python but not to an isolated virtualenv.
 
 ## Usage
 
@@ -159,8 +135,6 @@ exec-once = sleep 2 && waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
 | `--show-monitors` | Comma-separated monitor selectors to always show (disable autohide) | None |
 | `--initial-state` | Initial state for hide-monitors: `0`=hidden or `1`=visible | `0` |
 
-Reveal notes:
-`CursorSensor.TRIGGER_HEIGHT` is currently hardcoded to `1`, so showing only triggers at the top edge even though the physical sensor remains taller for stable leave detection.
 
 ### Examples
 
@@ -186,14 +160,6 @@ waybar-pilot -r -i --hide-monitors DP-1,HDMI-A-1
 # Restart with debug logs
 waybar-pilot -r -i --debug --hide-monitors DP-1
 ```
-
-## Project Layout
-
-```text
-src/waybar_pilot/
-```
-
-The code now lives in a normal Python package instead of a copied share directory plus a custom launcher.
 
 ## License
 

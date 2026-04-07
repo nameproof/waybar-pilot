@@ -3,13 +3,14 @@
 import logging
 import threading
 from typing import Callable, Optional
+
 import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("GtkLayerShell", "0.1")
 
-from gi.repository import Gtk, Gdk, GtkLayerShell, GLib  # type: ignore
+from gi.repository import Gtk, Gdk, GtkLayerShell, GLib  # type: ignore  # noqa: E402
 
 
 log = logging.getLogger("waybar-pilot")
@@ -29,7 +30,7 @@ class CursorSensor(Gtk.Window):
     """
 
     # Sensor dimensions
-    SENSOR_HEIGHT = 1   # pixels - fixed reveal strip at top edge
+    SENSOR_HEIGHT = 1  # pixels - fixed reveal strip at top edge
     TRIGGER_HEIGHT = 1  # pixels - logical reveal threshold at top edge
 
     # Debounce time to prevent flickering during cursor movement (milliseconds)
@@ -106,17 +107,20 @@ class CursorSensor(Gtk.Window):
     def _setup_appearance(self) -> None:
         """Make window transparent and input-only."""
         import logging
+
         log = logging.getLogger("waybar-pilot")
-        
+
         # Set size - full width, sensor height
         log.debug(f"Setting sensor size: {self._monitor_width}x{self._sensor_height}")
         self.set_default_size(self._monitor_width, self._sensor_height)
         self.set_size_request(self._monitor_width, self._sensor_height)
-        
+
         # Log the actual window size after setting
         actual_width = self.get_allocated_width()
         actual_height = self.get_allocated_height()
-        log.debug(f"Sensor window allocated size after set: {actual_width}x{actual_height}")
+        log.debug(
+            f"Sensor window allocated size after set: {actual_width}x{actual_height}"
+        )
 
         # Use RGBA visual for transparency
         screen = self.get_screen()
@@ -192,7 +196,6 @@ class CursorSensor(Gtk.Window):
             self._debounce_timer.daemon = True
             self._debounce_timer.start()
 
-
     def _should_trigger(self, y: float) -> bool:
         """Return True when the cursor is at the reveal threshold."""
         return y < self.TRIGGER_HEIGHT
@@ -246,23 +249,27 @@ class CursorSensor(Gtk.Window):
     def show_sensor(self) -> None:
         """Show and activate the sensor."""
         import logging
+
         log = logging.getLogger("waybar-pilot")
-        
+
         if not self._is_active:
             log.debug(f"Showing sensor for {self._monitor_name}")
             self.show_all()
             self._is_active = True
             # Log actual window size after showing
             GLib.timeout_add(100, self._log_window_size)
-    
+
     def _log_window_size(self) -> bool:
         """Log actual window size (called via GLib.timeout_add)."""
         import logging
+
         log = logging.getLogger("waybar-pilot")
         allocation = self.get_allocation()
-        log.debug(f"Sensor window {self._monitor_name} actual size: {allocation.width}x{allocation.height}")
+        log.debug(
+            f"Sensor window {self._monitor_name} actual size: {allocation.width}x{allocation.height}"
+        )
         return False  # Don't repeat
-    
+
     def hide_sensor(self) -> None:
         """Hide the sensor (for fullscreen mode)."""
         if self._is_active:

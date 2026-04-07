@@ -1,16 +1,17 @@
 """Cursor sensor manager for handling multiple monitor sensors."""
 
 from queue import Queue
-from typing import Callable, Dict, List, Optional
+from typing import Dict, List, Optional
+
+from ..hyprland.models import Monitor
+from .sensor import CursorSensor
+
 import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 
-from gi.repository import Gtk, Gdk  # type: ignore
-
-from ..hyprland.models import Monitor
-from .sensor import CursorSensor
+from gi.repository import Gtk, Gdk  # type: ignore  # noqa: E402
 
 
 class CursorManager:
@@ -39,7 +40,9 @@ class CursorManager:
         self._hyprland = hyprland_client
         self._sensors: Dict[str, CursorSensor] = {}  # monitor_name -> sensor
         self._gtk_display: Optional[Gdk.Display] = None
-        self._gdk_monitor_map: Dict[str, Gdk.Monitor] = {}  # monitor_name -> gdk_monitor
+        self._gdk_monitor_map: Dict[
+            str, Gdk.Monitor
+        ] = {}  # monitor_name -> gdk_monitor
         self._monitor_id_map: Dict[str, int] = {}  # monitor_name -> monitor_id
 
         # Initialize GTK if not already done
@@ -66,10 +69,13 @@ class CursorManager:
 
         self._gdk_monitor_map.clear()
         n_gdk_monitors = self._gtk_display.get_n_monitors()
-        
+
         import logging
+
         log = logging.getLogger("waybar-pilot")
-        log.info(f"Building monitor mapping: {len(hyprland_monitors)} Hyprland monitors, {n_gdk_monitors} GDK monitors")
+        log.info(
+            f"Building monitor mapping: {len(hyprland_monitors)} Hyprland monitors, {n_gdk_monitors} GDK monitors"
+        )
 
         # Build list of GDK monitors with their geometries
         gdk_monitors_with_geo = []
@@ -77,20 +83,26 @@ class CursorManager:
             gdk_monitor = self._gtk_display.get_monitor(i)
             if gdk_monitor:
                 geometry = gdk_monitor.get_geometry()
-                gdk_monitors_with_geo.append({
-                    "index": i,
-                    "monitor": gdk_monitor,
-                    "x": geometry.x,
-                    "y": geometry.y,
-                    "width": geometry.width,
-                    "height": geometry.height,
-                })
-                log.info(f"  GDK monitor {i}: {geometry.width}x{geometry.height} at ({geometry.x},{geometry.y})")
+                gdk_monitors_with_geo.append(
+                    {
+                        "index": i,
+                        "monitor": gdk_monitor,
+                        "x": geometry.x,
+                        "y": geometry.y,
+                        "width": geometry.width,
+                        "height": geometry.height,
+                    }
+                )
+                log.info(
+                    f"  GDK monitor {i}: {geometry.width}x{geometry.height} at ({geometry.x},{geometry.y})"
+                )
 
         # Match by geometry (x, y position)
         matched = 0
         for hl_monitor in hyprland_monitors:
-            log.info(f"  Hyprland monitor {hl_monitor.name}: {hl_monitor.width}x{hl_monitor.height} at ({hl_monitor.x},{hl_monitor.y})")
+            log.info(
+                f"  Hyprland monitor {hl_monitor.name}: {hl_monitor.width}x{hl_monitor.height} at ({hl_monitor.x},{hl_monitor.y})"
+            )
             for gdk_info in gdk_monitors_with_geo:
                 if hl_monitor.x == gdk_info["x"] and hl_monitor.y == gdk_info["y"]:
                     self._gdk_monitor_map[hl_monitor.name] = gdk_info["monitor"]
@@ -98,9 +110,11 @@ class CursorManager:
                     log.info(f"    -> Matched to GDK monitor {gdk_info['index']}")
                     break
             else:
-                log.warning(f"    -> No matching GDK monitor found!")
+                log.warning("    -> No matching GDK monitor found!")
 
-        log.info(f"Monitor mapping complete: {matched}/{len(hyprland_monitors)} matched")
+        log.info(
+            f"Monitor mapping complete: {matched}/{len(hyprland_monitors)} matched"
+        )
         return len(self._gdk_monitor_map) == len(hyprland_monitors)
 
     def _on_sensor_event(
@@ -138,8 +152,9 @@ class CursorManager:
             True if sensor created successfully, False otherwise
         """
         import logging
+
         log = logging.getLogger("waybar-pilot")
-        
+
         if monitor.name in self._sensors:
             return True  # Already exists
 
@@ -151,20 +166,26 @@ class CursorManager:
         gdk_monitor = self._gdk_monitor_map.get(monitor.name)
         if not gdk_monitor:
             return False
-        
+
         # Validate GDK monitor geometry - should not be 0x0
         geometry = gdk_monitor.get_geometry()
         if geometry.width == 0 or geometry.height == 0:
-            log.warning(f"GDK monitor {monitor.name} has invalid geometry: {geometry.width}x{geometry.height}")
+            log.warning(
+                f"GDK monitor {monitor.name} has invalid geometry: {geometry.width}x{geometry.height}"
+            )
             return False
-        
+
         # Validate Hyprland monitor geometry
         if monitor.width == 0 or monitor.height == 0:
-            log.warning(f"Hyprland monitor {monitor.name} has invalid geometry: {monitor.width}x{monitor.height}")
+            log.warning(
+                f"Hyprland monitor {monitor.name} has invalid geometry: {monitor.width}x{monitor.height}"
+            )
             return False
 
         try:
-            log.info(f"Creating sensor for {monitor.name}: Hyprland={monitor.width}x{monitor.height}, GDK={geometry.width}x{geometry.height}")
+            log.info(
+                f"Creating sensor for {monitor.name}: Hyprland={monitor.width}x{monitor.height}, GDK={geometry.width}x{geometry.height}"
+            )
             sensor = CursorSensor(
                 monitor_name=monitor.name,
                 monitor_width=monitor.width,
@@ -226,7 +247,9 @@ class CursorManager:
         self._sensors[monitor_name].show_sensor()
         return True
 
-    def update_monitors(self, monitors: List[Monitor], autohide_monitor_ids: List[int]) -> None:
+    def update_monitors(
+        self, monitors: List[Monitor], autohide_monitor_ids: List[int]
+    ) -> None:
         """Update sensors based on current monitor configuration.
 
         Creates sensors for new autohide monitors, removes sensors for
@@ -238,16 +261,15 @@ class CursorManager:
             autohide_monitor_ids: List of monitor IDs that should have sensors
         """
         import logging
+
         log = logging.getLogger("waybar-pilot")
-        
+
         # Rebuild GDK mapping
         self._build_monitor_mapping(monitors)
         self._monitor_id_map = {m.name: m.id for m in monitors}
 
         # Get set of monitor names that should have sensors
-        autohide_names = {
-            m.name for m in monitors if m.id in autohide_monitor_ids
-        }
+        autohide_names = {m.name for m in monitors if m.id in autohide_monitor_ids}
 
         # Remove sensors for monitors no longer in autohide list
         current_names = set(self._sensors.keys())
@@ -263,10 +285,14 @@ class CursorManager:
                     success = self.create_sensor_for_monitor(monitor)
                     if not success:
                         failed_monitors.append(monitor)
-                        log.warning(f"Will retry sensor creation for {monitor.name} on next update")
-        
+                        log.warning(
+                            f"Will retry sensor creation for {monitor.name} on next update"
+                        )
+
         # Log status
-        log.info(f"Sensor status: {len(self._sensors)}/{len(autohide_names)} sensors active")
+        log.info(
+            f"Sensor status: {len(self._sensors)}/{len(autohide_names)} sensors active"
+        )
         if failed_monitors:
             log.info(f"Pending sensor creation: {[m.name for m in failed_monitors]}")
 
