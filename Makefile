@@ -1,7 +1,7 @@
 PYTHON ?= python3
 UV ?= uv
 
-.PHONY: sync lint format run check-runtime
+.PHONY: sync lint format check-runtime
 
 sync:
 	@command -v $(UV) >/dev/null 2>&1 || { \
@@ -26,9 +26,6 @@ format:
 		exit 1; \
 	}
 	@$(UV) run ruff format .
-
-run:
-	@PYTHONPATH=src $(PYTHON) -m waybar_pilot
 
 check-runtime:
 	@command -v hyprctl >/dev/null 2>&1 || { \

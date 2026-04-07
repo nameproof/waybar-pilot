@@ -38,7 +38,7 @@ make check-runtime
 
 ## Installation
 
-Recommended install for normal use:
+Recommended install:
 
 ```bash
 git clone https://github.com/nameproof/waybar-pilot.git
@@ -68,7 +68,7 @@ pipx upgrade --system-site-packages --python /usr/bin/python3 waybar-pilot
 - `make sync`: create or update the local `uv` environment for dev tools
 - `make lint`: run Ruff checks
 - `make format`: run Ruff formatting
-- `make run`: run the app from the source tree with system Python
+- `PYTHONPATH=src python3 -m waybar_pilot`: run the app from the source tree with system Python
 
 Setup:
 
@@ -81,7 +81,7 @@ Typical workflow:
 ```bash
 make lint
 make format
-make run
+PYTHONPATH=src python3 -m waybar_pilot
 ```
 
 ## Usage
@@ -95,7 +95,7 @@ waybar-pilot
 Or run directly from the checkout while developing:
 
 ```bash
-make run
+PYTHONPATH=src python3 -m waybar_pilot
 ```
 
 ### Recommended Usage
