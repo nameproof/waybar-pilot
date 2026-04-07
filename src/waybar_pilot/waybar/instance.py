@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from config import Config, WaybarState
+from ..config import Config, WaybarState
 
 
 @dataclass

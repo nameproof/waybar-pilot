@@ -15,9 +15,9 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk  # type: ignore
 
-from config import Config, ResolvedMonitorSelection, WaybarState
-from cursor import CursorEnter, CursorLeave, CursorManager, CursorSensor
-from hyprland import (
+from .config import Config, ResolvedMonitorSelection, WaybarState
+from .cursor import CursorEnter, CursorLeave, CursorManager, CursorSensor
+from .hyprland import (
     Client,
     CursorPosition,
     EventType,
@@ -28,8 +28,8 @@ from hyprland import (
     Monitor,
     Socket2Listener,
 )
-from state import StateEngine
-from waybar import WaybarInstance, WaybarManager
+from .state import StateEngine
+from .waybar import WaybarInstance, WaybarManager
 
 # Setup logging - unbuffered so output appears in log files immediately
 logging.basicConfig(

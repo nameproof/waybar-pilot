@@ -1,8 +1,8 @@
 """Cursor detection module using GTK Layer Shell for event-driven cursor tracking."""
 
-from cursor.events import CursorEnter, CursorLeave, CursorEventType
-from cursor.manager import CursorManager
-from cursor.sensor import CursorSensor
+from .events import CursorEnter, CursorLeave, CursorEventType
+from .manager import CursorManager
+from .sensor import CursorSensor
 
 __all__ = [
     "CursorEnter",

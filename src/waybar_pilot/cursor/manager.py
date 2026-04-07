@@ -9,8 +9,8 @@ gi.require_version("Gdk", "3.0")
 
 from gi.repository import Gtk, Gdk  # type: ignore
 
-from hyprland.models import Monitor
-from cursor.sensor import CursorSensor
+from ..hyprland.models import Monitor
+from .sensor import CursorSensor
 
 
 class CursorManager:
@@ -116,7 +116,7 @@ class CursorManager:
             monitor_name: Monitor that triggered the event
             y: Y coordinate (for leave events)
         """
-        from cursor.events import CursorEnter, CursorLeave
+        from .events import CursorEnter, CursorLeave
 
         monitor_id = self._monitor_id_map.get(monitor_name)
         if monitor_id is None:

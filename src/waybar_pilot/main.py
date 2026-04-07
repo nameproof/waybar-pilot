@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Waybar autohide - entry point."""
 
 import argparse
@@ -218,8 +217,8 @@ def _run_main(args) -> int:
         return 1
     
     try:
-        from config import load_config
-        from controller import AutohideController
+        from .config import load_config
+        from .controller import AutohideController
         import logging
 
         if args.debug:

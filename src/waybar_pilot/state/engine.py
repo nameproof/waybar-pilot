@@ -4,8 +4,8 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 import time
 
-from config import Config, WaybarState
-from hyprland.models import Client, CursorPosition, Monitor
+from ..config import Config, WaybarState
+from ..hyprland.models import Client, CursorPosition, Monitor
 
 
 @dataclass

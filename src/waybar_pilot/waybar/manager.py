@@ -4,8 +4,8 @@ import logging
 import time
 from typing import Dict, Iterator, List, Optional
 
-from config import Config, WaybarState
-from hyprland import Monitor
+from ..config import Config, WaybarState
+from ..hyprland import Monitor
 from .instance import WaybarInstance
 
 log = logging.getLogger("waybar-pilot")

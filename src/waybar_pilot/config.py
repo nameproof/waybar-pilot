@@ -6,7 +6,7 @@ import re
 from typing import TYPE_CHECKING, List, Set
 
 if TYPE_CHECKING:
-    from hyprland.models import Monitor
+    from .hyprland.models import Monitor
 
 
 class WaybarState(StrEnum):

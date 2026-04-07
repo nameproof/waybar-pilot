@@ -2,11 +2,11 @@
 
 AI Disclaimer: Oh yes
 
-Intelligent waybar visibility management for Hyprland. Hides waybar on window overlap and reveals it based on cursor proximity using event-driven GTK Layer Shell sensors.
+Intelligent waybar visibility management for Hyprland. `waybar-pilot` hides waybar on window overlap and reveals it based on cursor proximity using event-driven GTK Layer Shell sensors.
 
-Independent waybars on each monitor; run one monitor with autohide and another monitor with a static always shown waybar.
+Independent waybars on each monitor; run one monitor with autohide and another monitor with a static always-shown waybar.
 
-Unlike Waybar's built-in `mode: hide` (which requires holding a modifier key), or simple auto-hide (which only responds to window overlap), waybar-pilot actively "pilots" a waybar for each monitor through different visibility states based on context: window overlap, cursor position, fullscreen state, and workspace changes.
+Unlike Waybar's built-in `mode: hide` (which requires holding a modifier key), or simple auto-hide (which only responds to window overlap), `waybar-pilot` actively "pilots" a waybar for each monitor through different visibility states based on context: window overlap, cursor position, fullscreen state, and workspace changes.
 
 Based on [HideyoshiNakazone/waybar-autohide](https://github.com/HideyoshiNakazone/waybar-autohide) but rewritten with event-driven cursor detection, fullscreen awareness, hysteresis-based smart behavior, CLI interface, and robust multi-monitor support.
 
@@ -18,7 +18,7 @@ https://github.com/user-attachments/assets/55fc5541-eec3-4c07-b1bc-c15e5e6252a7
 - **Cursor reveal**: Shows waybar when the cursor touches the top edge of the screen using event-driven sensors
 - **Multi-monitor support**: Per-monitor configuration (autohide vs always-show)
 - **Fullscreen awareness**: Disables cursor sensors during fullscreen
-- **Hysteresis**: Different thresholds for showing (hard) vs keeping (easy) - prevents flicker
+- **Hysteresis**: Different thresholds for showing vs keeping visibility to prevent flicker
 - **Workspace-aware**: Only hides waybar when fullscreen is on the active workspace
 - **Event-driven**: Uses Hyprland socket2 for instant response to window changes
 - **Monitor hotplug**: Handles monitor connect/disconnect automatically
@@ -27,53 +27,107 @@ https://github.com/user-attachments/assets/55fc5541-eec3-4c07-b1bc-c15e5e6252a7
 ## Requirements
 
 - Python >= 3.14
-- Hyprland window manager
+- Hyprland
+- `hyprctl`
 - Waybar
+- Python GI bindings with GTK 3
+- `GtkLayerShell` GI typelib
+
+## Runtime Dependencies
+
+Most of the app is standard-library Python, but runtime still depends on system-provided desktop pieces:
+
+- `hyprctl` for Hyprland state and cursor queries
+- `waybar` for the managed bars
+- `gi` / PyGObject so Python can import GTK
+- `GtkLayerShell` so the top-edge reveal sensors can exist
+
+That matters because these are usually installed by your distro, not by Python package metadata.
+
+You can verify the current machine with:
+
+```bash
+make check-runtime
+```
 
 ## Installation
 
-It's just a python script broken up for some structure.
-- `BIN_PATH` - Executable entry point
-- `SHARE_PATH` - Python modules and packages
+This project now uses normal Python packaging via `pyproject.toml`.
+
+Recommended install for normal use:
 
 ```bash
-# Download zip
-curl -L -O https://github.com/nameproof/waybar-pilot/archive/refs/heads/main.zip
-unzip main.zip
-
-# Or git clone
 git clone https://github.com/nameproof/waybar-pilot.git
+cd waybar-pilot
 
-# Install to ~/.local/bin and ${XDG_DATA_HOME}/waybar-pilot
-# (or ~/.local/share/waybar-pilot if XDG_DATA_HOME is unset)
-make install
-
-# Or specify custom paths
-make install BIN_PATH=/usr/local/bin SHARE_PATH=/usr/local/share/waybar-pilot
-
-# Uninstall
-make uninstall
+# Install into your user site-packages and create the waybar-pilot command
+make install-user
 ```
+
+Direct equivalent:
+
+```bash
+python3 -m pip install --user .
+```
+
+If `python3 -m pip` is missing, install your distro's pip package first.
+
+Uninstall:
+
+```bash
+make uninstall-user
+```
+
+## Development
+
+Development tooling is now real instead of placeholder targets:
+
+- `make sync`: create or update the local `uv` environment for dev tools
+- `make lint`: run Ruff checks
+- `make format`: run Ruff formatting
+- `make run`: run the app from the source tree with system Python
+
+Setup:
+
+```bash
+make sync
+```
+
+Typical workflow:
+
+```bash
+make lint
+make format
+make run
+```
+
+`make run` intentionally uses system Python with `PYTHONPATH=src` instead of the `uv` environment. On many Linux systems, `gi` and `GtkLayerShell` are available to system Python but not to an isolated virtualenv.
 
 ## Usage
 
-Simply run the script
+Run the installed command:
 
 ```bash
 waybar-pilot
 ```
 
+Or run directly from the checkout while developing:
+
+```bash
+make run
+```
+
 ### Recommended Usage
 
-Find your monitor. CLI options accept 'name' or 'serial':
+Find your monitor. CLI options accept `name` or `serial`:
 
 ```bash
 hyprctl -j monitors
 ```
 
-Add to your Hyprland config to start on launch (sleep to make sure original waybar has started and can be replaced if needed):
+Add to your Hyprland config to start on launch. The sleep gives the original waybar time to start so `waybar-pilot` can replace it cleanly if needed:
 
-```
+```ini
 exec-once = sleep 2 && waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
 ```
 
@@ -84,7 +138,7 @@ exec-once = sleep 2 && waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
 | Flag | Description |
 |------|-------------|
 | `-h, --help` | Show help message and exit |
-| `-s, --stop` | Kill existing waybar-pilot and managed waybar processes, then exit |
+| `-s, --stop` | Kill existing `waybar-pilot` and managed waybar processes, then exit |
 | `-r, --restart` | Kill existing and restart cleanly |
 | `-i, --interactive` | Run in foreground with logs (default is background) |
 | `--debug` | Enable debug logging |
@@ -127,6 +181,14 @@ waybar-pilot -r -i --hide-monitors DP-1,HDMI-A-1
 # Restart with debug logs
 waybar-pilot -r -i --debug --hide-monitors DP-1
 ```
+
+## Project Layout
+
+```text
+src/waybar_pilot/
+```
+
+The code now lives in a normal Python package instead of a copied share directory plus a custom launcher.
 
 ## License
 

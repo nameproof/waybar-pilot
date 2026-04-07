@@ -1,10 +1,14 @@
 # Virtual environment
-.venv
+.venv/
 
 # Distribution / packaging
 __pycache__/
 *.py[cod]
 *$py.class
+build/
+dist/
+*.egg-info/
+.ruff_cache/
 
 
 # IDE

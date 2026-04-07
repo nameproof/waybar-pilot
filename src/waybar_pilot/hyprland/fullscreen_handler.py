@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 import time
 
-from hyprland.models import Client, Monitor
+from .models import Client, Monitor
 
 
 @dataclass
