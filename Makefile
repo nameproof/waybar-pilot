@@ -1,7 +1,7 @@
 PYTHON ?= python3
 UV ?= uv
 
-.PHONY: sync lint format run check-runtime install-user uninstall-user
+.PHONY: sync lint format run check-runtime
 
 sync:
 	@command -v $(UV) >/dev/null 2>&1 || { \
@@ -45,18 +45,3 @@ check-runtime:
 		exit 1; \
 	}
 	@echo "Runtime dependencies look available."
-
-install-user:
-	@$(PYTHON) -m pip --version >/dev/null 2>&1 || { \
-		echo "python3 -m pip is required for user installs."; \
-		echo "Install your distro's pip package first."; \
-		exit 1; \
-	}
-	@$(PYTHON) -m pip install --user .
-
-uninstall-user:
-	@$(PYTHON) -m pip --version >/dev/null 2>&1 || { \
-		echo "python3 -m pip is required for uninstall."; \
-		exit 1; \
-	}
-	@$(PYTHON) -m pip uninstall -y waybar-pilot

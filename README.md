@@ -60,22 +60,25 @@ Recommended install for normal use:
 git clone https://github.com/nameproof/waybar-pilot.git
 cd waybar-pilot
 
-# Install into your user site-packages and create the waybar-pilot command
-make install-user
+# Install as an isolated CLI app
+pipx install .
 ```
 
-Direct equivalent:
+Alternative with plain pip:
 
 ```bash
 python3 -m pip install --user .
 ```
 
-If `python3 -m pip` is missing, install your distro's pip package first.
+If `pipx` or `python3 -m pip` is missing, install your distro's package first.
 
 Uninstall:
 
 ```bash
-make uninstall-user
+pipx uninstall waybar-pilot
+
+# Or if you used pip instead
+python3 -m pip uninstall waybar-pilot
 ```
 
 ## Development
@@ -86,6 +89,8 @@ Development tooling is now real instead of placeholder targets:
 - `make lint`: run Ruff checks
 - `make format`: run Ruff formatting
 - `make run`: run the app from the source tree with system Python
+
+Installation is intentionally documented as direct `pipx` / `pip` commands instead of wrapping those commands in `make`.
 
 Setup:
 
