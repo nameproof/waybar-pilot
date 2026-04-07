@@ -112,7 +112,7 @@ def _build_detached_command(args) -> list[str]:
     # Add all configuration arguments
     if args.bar_height != 26:  # Only add if non-default
         cmd.extend(["--bar-height", str(args.bar_height)])
-    if args.overlap != 20:
+    if args.overlap != 10:
         cmd.extend(["--overlap", str(args.overlap)])
     if args.procname != "waybar":
         cmd.extend(["--procname", args.procname])
@@ -122,6 +122,8 @@ def _build_detached_command(args) -> list[str]:
         cmd.extend(["--show-monitors", ",".join(map(str, args.show_monitors))])
     if args.initial_state != "0":
         cmd.extend(["--initial-state", args.initial_state])
+    if args.debug:
+        cmd.append("--debug")
 
     return cmd
 
@@ -218,6 +220,11 @@ def _run_main(args) -> int:
     try:
         from config import load_config
         from controller import AutohideController
+        import logging
+
+        if args.debug:
+            logging.getLogger().setLevel(logging.DEBUG)
+            logging.getLogger("waybar-pilot").setLevel(logging.DEBUG)
         
         # Load configuration from CLI arguments
         config = load_config(args)
@@ -280,6 +287,11 @@ Examples:
         action="store_true",
         help="Run in foreground with log output (default runs in background)"
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging"
+    )
     
     # Configuration options (long forms only)
     parser.add_argument(
@@ -291,8 +303,8 @@ Examples:
     parser.add_argument(
         "--overlap",
         type=_non_negative_int,
-        default=20,
-        help="Extra pixels below the bar used for overlap and leave detection (default: 20)"
+        default=10,
+        help="Extra pixels below the bar used for overlap and leave detection (default: 10)"
     )
     parser.add_argument(
         "--procname",

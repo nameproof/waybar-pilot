@@ -29,7 +29,7 @@ class CursorSensor(Gtk.Window):
     """
 
     # Sensor dimensions
-    SENSOR_HEIGHT = 10  # pixels - physical tracking zone
+    SENSOR_HEIGHT = 1   # pixels - fixed reveal strip at top edge
     TRIGGER_HEIGHT = 1  # pixels - logical reveal threshold at top edge
 
     # Debounce time to prevent flickering during cursor movement (milliseconds)
@@ -60,6 +60,7 @@ class CursorSensor(Gtk.Window):
         self._monitor_width = monitor_width
         self._monitor_x = monitor_x
         self._monitor_y = monitor_y
+        self._sensor_height = self.SENSOR_HEIGHT
         self._gdk_monitor = gdk_monitor
         self._event_callback = event_callback
 
@@ -108,9 +109,9 @@ class CursorSensor(Gtk.Window):
         log = logging.getLogger("waybar-pilot")
         
         # Set size - full width, sensor height
-        log.debug(f"Setting sensor size: {self._monitor_width}x{self.SENSOR_HEIGHT}")
-        self.set_default_size(self._monitor_width, self.SENSOR_HEIGHT)
-        self.set_size_request(self._monitor_width, self.SENSOR_HEIGHT)
+        log.debug(f"Setting sensor size: {self._monitor_width}x{self._sensor_height}")
+        self.set_default_size(self._monitor_width, self._sensor_height)
+        self.set_size_request(self._monitor_width, self._sensor_height)
         
         # Log the actual window size after setting
         actual_width = self.get_allocated_width()
@@ -191,13 +192,6 @@ class CursorSensor(Gtk.Window):
             self._debounce_timer.daemon = True
             self._debounce_timer.start()
 
-        log.debug(
-            "Sensor %s: scheduled debounced leave from %s in %sms (y=%s)",
-            self._monitor_name,
-            source,
-            self.DEBOUNCE_MS,
-            y,
-        )
 
     def _should_trigger(self, y: float) -> bool:
         """Return True when the cursor is at the reveal threshold."""
@@ -208,7 +202,7 @@ class CursorSensor(Gtk.Window):
         if not self._trigger_active:
             self._trigger_active = True
             log.debug(
-                "Sensor %s: reveal triggered at top edge",
+                "Sensor %s: reveal sensor triggered",
                 self._monitor_name,
             )
             self._event_callback("enter", self._monitor_name)
@@ -219,12 +213,7 @@ class CursorSensor(Gtk.Window):
         self._cancel_debounce()
 
         self._cursor_inside = True
-        log.debug(
-            "Sensor %s: cursor entered tracking zone at y=%.1f",
-            self._monitor_name,
-            float(getattr(event, "y", -1.0)),
-        )
-        if self._should_trigger(float(getattr(event, "y", self.SENSOR_HEIGHT))):
+        if self._should_trigger(float(getattr(event, "y", self._sensor_height))):
             self._activate_trigger()
         return False  # Don't stop propagation
 
@@ -233,12 +222,10 @@ class CursorSensor(Gtk.Window):
         if not self._cursor_inside:
             return False
 
-        y = int(getattr(event, "y", self.SENSOR_HEIGHT))
+        y = int(getattr(event, "y", self._sensor_height))
         if self._should_trigger(float(y)):
             self._cancel_debounce()
             self._activate_trigger()
-        elif self._trigger_active:
-            self._schedule_leave(y, "motion")
         return False  # Don't stop propagation
 
     def _on_leave(self, widget: Gtk.Widget, event: Gdk.EventCrossing) -> bool:
@@ -250,19 +237,9 @@ class CursorSensor(Gtk.Window):
         self._cancel_debounce()
 
         self._cursor_inside = False
-        log.debug(
-            "Sensor %s: cursor left tracking zone at y=%s (trigger_active=%s)",
-            self._monitor_name,
-            y,
-            self._trigger_active,
-        )
-
-        # Physical leave means the cursor is definitely no longer at the top
-        # edge reveal threshold. Normalize the reported y away from 0 so the
-        # controller does not mistake this backup path for a genuine re-entry.
+        # Physical leave means the cursor has exited the current tracking zone.
         if self._trigger_active:
-            normalized_y = max(y, self.TRIGGER_HEIGHT + 1)
-            self._schedule_leave(normalized_y, "leave")
+            self._schedule_leave(y, "leave")
 
         return False  # Don't stop propagation
 

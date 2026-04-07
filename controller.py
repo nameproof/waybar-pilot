@@ -46,8 +46,6 @@ class PendingExitCheck:
     """Scheduled hide recheck handled by the main loop."""
 
     next_check_at: float
-    leave_enter_count: int
-    top_edge_leave: bool
 
 
 class AutohideController:
@@ -73,12 +71,6 @@ class AutohideController:
     EXIT_GRACE_PERIOD = 0.1         # Initial delay after cursor leaves sensor
     EXIT_EXTENDED_PERIOD = 2.0      # Extended delay while cursor is in bar area
     PROCESS_KILL_SETTLE = 0.5       # Wait after pkill for processes to die
-
-    # --- Sensor geometry constants (pixels) ---
-    SENSOR_REENTER_ZONE = 10        # Y threshold to consider cursor back in sensor
-
-    # --- Top-zone re-entry verification ---
-    TOP_ZONE_RECHECK_INTERVAL = 0.2 # Poll while a reveal-triggered top-edge leave is unresolved
 
     # --- GTK event processing ---
     GTK_MAX_EVENTS_PER_TICK = 50    # Max GTK events processed per main loop tick
@@ -115,10 +107,10 @@ class AutohideController:
         # Cursor tracking
         self._cursor_in_sensor_zone: Dict[int, bool] = {}  # monitor_id -> bool
         self._exit_checks: Dict[int, PendingExitCheck] = {}
-        self._sensor_enter_counts: Dict[int, int] = {}  # monitor_id -> monotonic enter count
         self._last_cursor_monitor: Optional[int] = None  # Track cursor monitor to detect teleport
         self._loop_tick = 0
         self._cursor_query_reasons_this_tick: List[str] = []
+        self._visible_threshold_polling_ids: Set[int] = set()
 
         # Startup grace period tracking
         self._waybar_start_times: Dict[int, float] = {}  # monitor_id -> start time
@@ -350,6 +342,7 @@ class AutohideController:
                 try:
                     if self._waybar_manager.get_instance(monitor_id):
                         instance.toggle()
+                        self._waybar_manager.set_state(monitor_id, WaybarState.HIDDEN)
                         log.info(f"Monitor {monitor_id}: hidden after startup grace period")
                 except RuntimeError:
                     pass  # Waybar may have died, _check_process_health will handle it
@@ -473,50 +466,24 @@ class AutohideController:
 
             # Mark cursor as in sensor zone
             self._cursor_in_sensor_zone[monitor_id] = True
-            self._sensor_enter_counts[monitor_id] = self._sensor_enter_counts.get(monitor_id, 0) + 1
-            log.debug("Monitor %s: cursor entered reveal zone", monitor_id)
-
         elif isinstance(event, CursorLeave):
-            # Cursor left sensor zone - start grace period timer
-            # Set state to False immediately for accurate tracking
-            # Timer will handle the actual hide action after grace period
-            self._cursor_in_sensor_zone[monitor_id] = False
-            log.debug(
-                "Monitor %s: cursor left reveal zone at y=%s, starting hide timer",
-                monitor_id,
-                event.exit_y,
-            )
-            self._start_bar_exit_timer(monitor_id, event.exit_y)
+            # Leave events are informational in the hybrid design. The actual
+            # visible hide threshold is enforced from real cursor position.
+            return
 
-    def _start_bar_exit_timer(self, monitor_id: int, exit_y: int) -> None:
+    def _start_bar_exit_timer(self, monitor_id: int) -> None:
         """Schedule the first hide recheck after leaving the reveal zone."""
-        leave_enter_count = self._sensor_enter_counts.get(monitor_id, 0)
-        top_edge_leave = exit_y <= self.SENSOR_REENTER_ZONE
-
         log.debug(
             "Monitor %s: scheduling hide grace timer for %.2fs",
             monitor_id,
             self.EXIT_GRACE_PERIOD,
         )
-        self._schedule_exit_check(
-            monitor_id,
-            self.EXIT_GRACE_PERIOD,
-            leave_enter_count,
-            top_edge_leave,
-        )
+        self._schedule_exit_check(monitor_id, self.EXIT_GRACE_PERIOD)
 
-    def _schedule_exit_check(
-        self,
-        monitor_id: int,
-        delay: float,
-        leave_enter_count: int,
-        top_edge_leave: bool,
-    ) -> None:
+    def _schedule_exit_check(self, monitor_id: int, delay: float) -> None:
         """Schedule a hide recheck to be processed by the main loop."""
         self._exit_checks[monitor_id] = PendingExitCheck(
             next_check_at=time.time() + delay,
-            leave_enter_count=leave_enter_count,
-            top_edge_leave=top_edge_leave,
         )
 
     def _get_cursor_position_logged(self, reason: str) -> CursorPosition:
@@ -530,7 +497,7 @@ class AutohideController:
 
     def _finish_loop_tick(self) -> None:
         """Emit a log if this loop tick queried cursor position multiple times."""
-        if len(self._cursor_query_reasons_this_tick) > 1:
+        if len(self._cursor_query_reasons_this_tick) > 2:
             log.debug(
                 "Tick %s: multiple cursor queries in one loop: %s",
                 self._loop_tick,
@@ -539,7 +506,7 @@ class AutohideController:
         self._cursor_query_reasons_this_tick.clear()
 
     def _process_exit_checks(self) -> None:
-        """Process due hide rechecks with one shared cursor query."""
+        """Process due hide rechecks without extra cursor polling."""
         if not self._exit_checks:
             return
 
@@ -552,103 +519,96 @@ class AutohideController:
         if not due_monitor_ids:
             return
 
-        try:
-            cursor_pos = self._get_cursor_position_logged("exit_checks")
-            cursor_monitor = self._state_engine.get_cursor_monitor(cursor_pos, self._monitors)
-        except Exception as exc:
-            log.warning("Exit check cursor query failed (%s), forcing hide", exc)
-            for monitor_id in due_monitor_ids:
-                self._cursor_in_sensor_zone[monitor_id] = False
-                self._exit_checks.pop(monitor_id, None)
-            self._update_visibility()
-            return
-
         needs_visibility_update = False
         for monitor_id in due_monitor_ids:
             pending = self._exit_checks.get(monitor_id)
             if not pending or pending.next_check_at > now:
                 continue
 
+            self._exit_checks.pop(monitor_id, None)
+            if self._cursor_in_sensor_zone.get(monitor_id, False):
+                continue
+
+            log.debug("Monitor %s: hide grace elapsed, hiding waybar", monitor_id)
+            needs_visibility_update = True
+
+        if needs_visibility_update:
+            self._update_visibility()
+
+    def _process_visible_cursor_thresholds(self) -> None:
+        """Use actual cursor position to enforce the visible hide threshold.
+
+        GTK crossing events are still useful for reveal, but their local event
+        coordinates are not stable enough to be the sole source of truth for
+        the visible bar threshold. While an autohide bar is visible, use one
+        shared cursor query to track whether the pointer is still within the
+        configured visible zone.
+
+        Important: we intentionally do not use GTK enter/leave events alone to
+        decide hiding. In practice, the top-edge layer-shell sensor can report
+        inconsistent crossing coordinates depending on compositor/window state,
+        which made hide timing and `--overlap` behavior unreliable across the
+        experiments in this branch. Reveal stays event-driven; hide threshold
+        correctness comes from actual cursor position.
+        """
+        visible_autohide_ids = []
+        for monitor in self._monitors:
+            if self._is_show_monitor(monitor.id):
+                continue
+
+            instance = self._waybar_manager.get_instance(monitor.id)
+            if instance and instance.state == WaybarState.VISIBLE:
+                visible_autohide_ids.append(monitor.id)
+
+        current_polling_ids = set(visible_autohide_ids)
+        for monitor_id in sorted(current_polling_ids - self._visible_threshold_polling_ids):
+            log.debug("Monitor %s: visible-threshold polling active", monitor_id)
+        for monitor_id in sorted(self._visible_threshold_polling_ids - current_polling_ids):
+            log.debug("Monitor %s: visible-threshold polling inactive", monitor_id)
+        self._visible_threshold_polling_ids = current_polling_ids
+
+        if not visible_autohide_ids:
+            return
+
+        try:
+            cursor_pos = self._get_cursor_position_logged("visible_threshold")
+            cursor_monitor = self._state_engine.get_cursor_monitor(cursor_pos, self._monitors)
+        except Exception as exc:
+            log.debug(f"Error checking visible cursor threshold: {exc}")
+            return
+
+        hide_threshold = self._config.total_detection_height
+        for monitor_id in visible_autohide_ids:
             monitor = next((m for m in self._monitors if m.id == monitor_id), None)
             if not monitor:
-                log.debug("Monitor %s: hide check fired but monitor no longer exists", monitor_id)
-                self._cursor_in_sensor_zone[monitor_id] = False
-                self._exit_checks.pop(monitor_id, None)
-                needs_visibility_update = True
                 continue
 
             relative_y = cursor_pos.y - monitor.y
-            if relative_y <= self.SENSOR_REENTER_ZONE and cursor_monitor == monitor_id:
-                current_enter_count = self._sensor_enter_counts.get(monitor_id, 0)
-                if current_enter_count == pending.leave_enter_count:
-                    log.debug(
-                        "Monitor %s: top-edge leave is still unresolved, rechecking in %.2fs",
-                        monitor_id,
-                        self.TOP_ZONE_RECHECK_INTERVAL,
-                    )
-                    self._schedule_exit_check(
-                        monitor_id,
-                        self.TOP_ZONE_RECHECK_INTERVAL,
-                        pending.leave_enter_count,
-                        pending.top_edge_leave,
-                    )
-                    continue
+            inside_threshold = cursor_monitor == monitor_id and relative_y <= hide_threshold
+            was_inside = self._cursor_in_sensor_zone.get(monitor_id, False)
 
-                log.debug(
-                    "Monitor %s: hide check cancelled, cursor returned to top zone (y=%s)",
-                    monitor_id,
-                    relative_y,
-                )
-                self._exit_checks.pop(monitor_id, None)
+            if inside_threshold:
+                if not was_inside:
+                    log.debug(
+                        "Monitor %s: actual cursor re-entered visible threshold (y=%s, threshold=%s)",
+                        monitor_id,
+                        relative_y,
+                        hide_threshold,
+                    )
                 self._cursor_in_sensor_zone[monitor_id] = True
+                self._exit_checks.pop(monitor_id, None)
                 continue
 
-            hide_threshold = self._config.bar_height + self._config.height_threshold
-            if relative_y > hide_threshold or cursor_monitor != monitor_id:
+            if was_inside:
                 log.debug(
-                    "Monitor %s: hide check hiding waybar (cursor_monitor=%s, y=%s, threshold=%s)",
+                    "Monitor %s: actual cursor crossed visible threshold (cursor_monitor=%s, y=%s, threshold=%s)",
                     monitor_id,
                     cursor_monitor,
                     relative_y,
                     hide_threshold,
                 )
                 self._cursor_in_sensor_zone[monitor_id] = False
-                self._exit_checks.pop(monitor_id, None)
-                needs_visibility_update = True
-                continue
-
-            if pending.top_edge_leave:
-                log.debug(
-                    "Monitor %s: cursor still in bar zone after top-edge leave, rechecking in %.2fs (y=%s, threshold=%s)",
-                    monitor_id,
-                    self.TOP_ZONE_RECHECK_INTERVAL,
-                    relative_y,
-                    hide_threshold,
-                )
-                self._schedule_exit_check(
-                    monitor_id,
-                    self.TOP_ZONE_RECHECK_INTERVAL,
-                    pending.leave_enter_count,
-                    pending.top_edge_leave,
-                )
-                continue
-
-            log.debug(
-                "Monitor %s: extending visibility for %.2fs (cursor y=%s within threshold=%s)",
-                monitor_id,
-                self.EXIT_EXTENDED_PERIOD,
-                relative_y,
-                hide_threshold,
-            )
-            self._schedule_exit_check(
-                monitor_id,
-                self.EXIT_EXTENDED_PERIOD,
-                pending.leave_enter_count,
-                pending.top_edge_leave,
-            )
-
-        if needs_visibility_update:
-            self._update_visibility()
+                self._start_bar_exit_timer(monitor_id)
 
     def _handle_monitor_change(self, event: HyprlandEvent) -> None:
         """Handle monitor add/remove events."""
@@ -867,6 +827,18 @@ class AutohideController:
         for monitor_id, old_state, new_state in transitions:
             instance = self._waybar_manager.get_instance(monitor_id)
             if instance:
+                active_workspace = active_workspaces_by_monitor.get(monitor_id)
+                is_fullscreen = self._fullscreen_handler.is_fullscreen(monitor_id, active_workspace)
+
+                if self._is_show_monitor(monitor_id) and not is_fullscreen and new_state != WaybarState.VISIBLE:
+                    log.warning(
+                        "Monitor %s: refusing hidden transition for always-show monitor",
+                        monitor_id,
+                    )
+                    self._state_engine.get_or_create_monitor_state(monitor_id).current_state = WaybarState.VISIBLE
+                    self._waybar_manager.set_state(monitor_id, WaybarState.VISIBLE)
+                    continue
+
                 # Skip if waybar is still in startup grace period
                 if monitor_id in self._waybar_start_times:
                     elapsed = time.time() - self._waybar_start_times[monitor_id]
@@ -909,7 +881,7 @@ class AutohideController:
                         # Return position at top center of this monitor
                         return CursorPosition(
                             monitor.x + monitor.width // 2,
-                            monitor.y + CursorSensor.SENSOR_HEIGHT // 2
+                            monitor.y + CursorSensor.TRIGGER_HEIGHT // 2
                         )
 
         # No cursor in any sensor - return default
@@ -974,6 +946,11 @@ class AutohideController:
 
                 # Process events (both cursor and Hyprland events)
                 self._process_events()
+
+                # While an autohide bar is visible, enforce the configured hide
+                # threshold from actual cursor position rather than GTK crossing
+                # coordinates alone.
+                self._process_visible_cursor_thresholds()
 
                 # Process scheduled hide rechecks with one shared cursor query.
                 self._process_exit_checks()

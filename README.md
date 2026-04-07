@@ -87,13 +87,14 @@ exec-once = sleep 2 && waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
 | `-s, --stop` | Kill existing waybar-pilot and managed waybar processes, then exit |
 | `-r, --restart` | Kill existing and restart cleanly |
 | `-i, --interactive` | Run in foreground with logs (default is background) |
+| `--debug` | Enable debug logging |
 
 **Configuration Options:**
 
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--bar-height` | Waybar height in pixels | `26` |
-| `--overlap` | Extra pixels below the bar used for overlap and leave detection | `20` |
+| `--overlap` | Extra pixels below the bar used for overlap and leave detection | `10` |
 | `--procname` | Process name to manage | `waybar` |
 | `--hide-monitors` | Comma-separated monitor selectors for autohide (`DP-1`, `ABC123`) | All monitors |
 | `--show-monitors` | Comma-separated monitor selectors to always show (disable autohide) | None |
@@ -122,6 +123,9 @@ waybar-pilot -r --hide-monitors DP-1 --overlap 30
 
 # Restart and see logs for debugging
 waybar-pilot -r -i --hide-monitors DP-1,HDMI-A-1
+
+# Restart with debug logs
+waybar-pilot -r -i --debug --hide-monitors DP-1
 ```
 
 ## License
