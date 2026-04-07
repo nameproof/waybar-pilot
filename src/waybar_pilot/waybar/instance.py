@@ -101,7 +101,7 @@ class WaybarInstance:
                     raw = f.read()
                 stripped = self._strip_jsonc_comments(raw)
                 config_content = json.loads(stripped)
-            except json.JSONDecodeError, IOError:
+            except (json.JSONDecodeError, IOError):
                 config_content = {}
 
         # Set output to this specific monitor

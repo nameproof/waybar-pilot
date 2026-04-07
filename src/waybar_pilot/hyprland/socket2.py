@@ -159,7 +159,7 @@ class Socket2Listener:
                     monitor_id = self._monitor_name_to_id[monitor_name]
                     del self._monitor_name_to_id[monitor_name]
                     return monitor_id
-        except IndexError, KeyError:
+        except (IndexError, KeyError):
             pass
         return None
 
@@ -217,7 +217,7 @@ class Socket2Listener:
                     except Exception:
                         break
 
-            except FileNotFoundError, ConnectionRefusedError:
+            except (FileNotFoundError, ConnectionRefusedError):
                 # Socket not available, retry after delay
                 time.sleep(1)
                 continue

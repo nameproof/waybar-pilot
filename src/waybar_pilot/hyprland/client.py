@@ -66,7 +66,7 @@ class HyprlandClient:
         try:
             self._run_hyprctl(["version"], check=True)
             return True
-        except HyprlandConnectionError, HyprlandError:
+        except (HyprlandConnectionError, HyprlandError):
             return False
 
     def get_monitors(self) -> List[Monitor]:

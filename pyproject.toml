@@ -7,7 +7,7 @@ name = "waybar-pilot"
 version = "0.1.0"
 description = "Intelligent waybar visibility management for Hyprland"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 license = { file = "LICENSE" }
 
 [project.scripts]
@@ -25,4 +25,4 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py311"

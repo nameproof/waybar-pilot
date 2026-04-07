@@ -66,7 +66,7 @@ def _kill_existing_processes(args) -> None:
                         pid = int(line.strip())
                         if pid != current_pid:
                             os.kill(pid, 9)
-                    except ValueError, ProcessLookupError:
+                    except (ValueError, ProcessLookupError):
                         pass
     except Exception:
         pass
@@ -83,7 +83,7 @@ def _kill_existing_processes(args) -> None:
                         pid = int(line.strip())
                         if pid != current_pid:
                             os.kill(pid, 9)
-                    except ValueError, ProcessLookupError:
+                    except (ValueError, ProcessLookupError):
                         pass
     except Exception:
         pass

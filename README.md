@@ -26,7 +26,7 @@ https://github.com/user-attachments/assets/55fc5541-eec3-4c07-b1bc-c15e5e6252a7
 
 ## Requirements
 
-- Python >= 3.14
+- Python >= 3.11
 - Hyprland
 - Waybar
 

@@ -241,7 +241,7 @@ class AutohideController:
                 capture_output=True,
             )
             time.sleep(self.PROCESS_KILL_SETTLE)
-        except FileNotFoundError, OSError:
+        except (FileNotFoundError, OSError):
             pass
 
     def _get_managed_monitor_ids(self) -> List[int]:

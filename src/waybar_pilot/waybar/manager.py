@@ -206,7 +206,7 @@ class WaybarManager:
                             except ProcessLookupError:
                                 pass
                             killed_count += 1
-                        except ProcessLookupError, PermissionError:
+                        except (ProcessLookupError, PermissionError):
                             pass
 
                 except (ProcessLookupError, PermissionError, OSError) as e:
