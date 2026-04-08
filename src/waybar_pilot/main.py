@@ -1,12 +1,44 @@
 """Waybar autohide - entry point."""
 
 import argparse
+import logging
 import os
+from pathlib import Path
 import subprocess
 import sys
 import time
 
 DETACHED_CHILD_ENV = "WAYBAR_PILOT_DETACHED_CHILD"
+LOG_FORMAT = "%(asctime)s %(levelname)s: %(message)s"
+LOG_DATE_FORMAT = "%H:%M:%S"
+
+
+def _get_runtime_log_path() -> Path:
+    """Return the log path for detached/background runs."""
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime_dir:
+        return Path(runtime_dir) / "waybar-pilot.log"
+
+    return Path("/tmp") / f"waybar-pilot-{os.getuid()}.log"
+
+
+def _configure_logging(level: int = logging.INFO) -> logging.Logger:
+    """Configure timestamped logging for both interactive and detached runs."""
+    root_logger = logging.getLogger()
+
+    if not root_logger.handlers:
+        logging.basicConfig(
+            level=level,
+            format=LOG_FORMAT,
+            datefmt=LOG_DATE_FORMAT,
+            stream=sys.stderr,
+        )
+    else:
+        root_logger.setLevel(level)
+
+    logger = logging.getLogger("waybar-pilot")
+    logger.setLevel(level)
+    return logger
 
 
 def check_requirements() -> bool:
@@ -15,6 +47,8 @@ def check_requirements() -> bool:
     Returns:
         True if all requirements met, False otherwise
     """
+    log = logging.getLogger("waybar-pilot")
+
     try:
         import gi
 
@@ -23,16 +57,14 @@ def check_requirements() -> bool:
 
         return True
     except ImportError:
-        print("Error: Missing required dependency - PyGObject (GTK bindings)")
-        print()
-        print("Please install python-gobject:")
-        print("  Arch: sudo pacman -S python-gobject")
-        print("  Debian/Ubuntu: sudo apt install python3-gi")
-        print("  Fedora: sudo dnf install python3-gobject")
-        print()
+        log.error("Missing required dependency - PyGObject (GTK bindings)")
+        log.error("Please install python-gobject:")
+        log.error("  Arch: sudo pacman -S python-gobject")
+        log.error("  Debian/Ubuntu: sudo apt install python3-gi")
+        log.error("  Fedora: sudo dnf install python3-gobject")
         return False
     except Exception as e:
-        print(f"Error: Failed to initialize GTK - {e}")
+        log.exception("Failed to initialize GTK: %s", e)
         return False
 
 
@@ -129,18 +161,23 @@ def _build_detached_command(args) -> list[str]:
 
 def _run_detached(args) -> int:
     """Launch waybar-pilot in background and return immediately."""
-    print("Starting waybar-pilot in background...")
     cmd = _build_detached_command(args)
     env = os.environ.copy()
     env[DETACHED_CHILD_ENV] = "1"
+    log_path = _get_runtime_log_path()
 
-    subprocess.Popen(
-        cmd,
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    print(f"Starting waybar-pilot in background (log: {log_path})...")
+
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with log_path.open("w", encoding="utf-8") as log_file:
+        subprocess.Popen(
+            cmd,
+            env=env,
+            stdout=log_file,
+            stderr=log_file,
+            start_new_session=True,
+        )
     return 0
 
 
@@ -212,6 +249,9 @@ def _run_main(args) -> int:
     Args:
         args: Parsed command line arguments
     """
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    log = _configure_logging(log_level)
+
     # Check requirements first
     if not check_requirements():
         return 1
@@ -219,11 +259,6 @@ def _run_main(args) -> int:
     try:
         from .config import load_config
         from .controller import AutohideController
-        import logging
-
-        if args.debug:
-            logging.getLogger().setLevel(logging.DEBUG)
-            logging.getLogger("waybar-pilot").setLevel(logging.DEBUG)
 
         # Load configuration from CLI arguments
         config = load_config(args)
@@ -238,13 +273,10 @@ def _run_main(args) -> int:
             return 1
 
     except ValueError as e:
-        print(f"Configuration error: {e}")
+        log.error("Configuration error: %s", e)
         return 1
     except Exception as e:
-        print(f"Fatal error: {e}")
-        import traceback
-
-        traceback.print_exc()
+        log.exception("Fatal error: %s", e)
         return 1
 
 
