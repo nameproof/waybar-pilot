@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "waybar-pilot"
-version = "0.1.1"
+version = "0.1.2"
 description = "Intelligent waybar visibility management for Hyprland"
 readme = "README.md"
 requires-python = ">=3.11"

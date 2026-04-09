@@ -511,6 +511,37 @@ class AutohideController:
             next_check_at=time.time() + delay,
         )
 
+    def _clear_sensor_zone_state(
+        self,
+        monitor_id: int,
+        *,
+        schedule_exit_grace: bool,
+        reason: str,
+    ) -> bool:
+        """Clear stale sensor state and optionally preserve hide grace."""
+        if not self._cursor_in_sensor_zone.get(monitor_id, False):
+            return False
+
+        self._cursor_in_sensor_zone[monitor_id] = False
+
+        if schedule_exit_grace:
+            instance = self._waybar_manager.get_instance(monitor_id)
+            if (
+                instance
+                and instance.state == WaybarState.VISIBLE
+                and monitor_id not in self._exit_checks
+            ):
+                log.debug(
+                    "Monitor %s: stale sensor clear (%s), starting hide grace",
+                    monitor_id,
+                    reason,
+                )
+                self._start_bar_exit_timer(monitor_id)
+        else:
+            self._exit_checks.pop(monitor_id, None)
+
+        return True
+
     def _get_cursor_position_logged(self, reason: str) -> CursorPosition:
         """Get cursor position and log duplicate per-tick queries.
 
@@ -733,15 +764,15 @@ class AutohideController:
                     )
 
                     # Clear stale sensor state for the old monitor
-                    if old_monitor in self._cursor_in_sensor_zone:
-                        if self._cursor_in_sensor_zone[old_monitor]:
-                            log.debug(
-                                f"Clearing stale sensor state for monitor {old_monitor}"
-                            )
-                            self._cursor_in_sensor_zone[old_monitor] = False
-                            state_cleared = True
-
-                            self._exit_checks.pop(old_monitor, None)
+                    if self._clear_sensor_zone_state(
+                        old_monitor,
+                        schedule_exit_grace=True,
+                        reason="cursor monitor changed",
+                    ):
+                        log.debug(
+                            f"Clearing stale sensor state for monitor {old_monitor}"
+                        )
+                        state_cleared = True
             elif self._last_cursor_monitor is None and current_monitor is not None:
                 log.debug(f"Initializing cursor monitor tracking: {current_monitor}")
 
@@ -795,17 +826,16 @@ class AutohideController:
             ):
                 # Cursor moved to different monitor - clear old monitor's state
                 old_monitor = self._last_cursor_monitor
-                if old_monitor in self._cursor_in_sensor_zone:
-                    if self._cursor_in_sensor_zone[old_monitor]:
-                        log.debug(
-                            f"Active window change: cursor moved to monitor "
-                            f"{cursor_monitor} from {old_monitor}, clearing stale state"
-                        )
-                        self._cursor_in_sensor_zone[old_monitor] = False
-
-                        self._exit_checks.pop(old_monitor, None)
-
-                        state_cleared = True
+                if self._clear_sensor_zone_state(
+                    old_monitor,
+                    schedule_exit_grace=True,
+                    reason="active window monitor change",
+                ):
+                    log.debug(
+                        f"Active window change: cursor moved to monitor "
+                        f"{cursor_monitor} from {old_monitor}, clearing stale state"
+                    )
+                    state_cleared = True
 
             # Also check if cursor is below sensor zone on the SAME monitor
             if cursor_monitor in self._cursor_in_sensor_zone:
@@ -823,15 +853,19 @@ class AutohideController:
                         )
 
                         # If cursor is below the sensor zone, it's likely been moved
-                        if relative_y > sensor_zone_height:
+                        if (
+                            relative_y > sensor_zone_height
+                            and self._clear_sensor_zone_state(
+                                cursor_monitor,
+                                schedule_exit_grace=True,
+                                reason="active window moved below sensor zone",
+                            )
+                        ):
                             log.debug(
                                 f"Active window change: cursor moved below sensor zone "
                                 f"on monitor {cursor_monitor} (y={relative_y}, "
                                 f"zone={sensor_zone_height}px), clearing stale state"
                             )
-                            self._cursor_in_sensor_zone[cursor_monitor] = False
-
-                            self._exit_checks.pop(cursor_monitor, None)
 
                             state_cleared = True
 
@@ -899,6 +933,23 @@ class AutohideController:
                         monitor_id
                     ).current_state = WaybarState.VISIBLE
                     self._waybar_manager.set_state(monitor_id, WaybarState.VISIBLE)
+                    continue
+
+                pending_exit = self._exit_checks.get(monitor_id)
+                if (
+                    pending_exit
+                    and old_state == WaybarState.VISIBLE
+                    and new_state == WaybarState.HIDDEN
+                    and not is_fullscreen
+                ):
+                    log.debug(
+                        "Monitor %s: hide deferred, exit grace still pending",
+                        monitor_id,
+                    )
+                    self._state_engine.get_or_create_monitor_state(
+                        monitor_id
+                    ).current_state = old_state
+                    self._waybar_manager.set_state(monitor_id, old_state)
                     continue
 
                 # Skip if waybar is still in startup grace period
