@@ -1,16 +1,22 @@
 """Waybar autohide - entry point."""
 
+import atexit
 import argparse
+import faulthandler
 import logging
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
+import threading
 import time
 
 DETACHED_CHILD_ENV = "WAYBAR_PILOT_DETACHED_CHILD"
+DETACHED_WRAPPER_ENV = "WAYBAR_PILOT_DETACHED_WRAPPER"
 LOG_FORMAT = "%(asctime)s %(levelname)s: %(message)s"
 LOG_DATE_FORMAT = "%H:%M:%S"
+_CRASH_AIDS_INSTALLED = False
 
 
 def _get_runtime_log_path() -> Path:
@@ -39,6 +45,49 @@ def _configure_logging(level: int = logging.INFO) -> logging.Logger:
     logger = logging.getLogger("waybar-pilot")
     logger.setLevel(level)
     return logger
+
+
+def _install_crash_aids() -> None:
+    """Install traceback and crash diagnostics for background runs."""
+    global _CRASH_AIDS_INSTALLED
+
+    if _CRASH_AIDS_INSTALLED:
+        return
+
+    log = logging.getLogger("waybar-pilot")
+
+    def _log_unhandled_exception(exc_type, exc_value, exc_traceback) -> None:
+        if issubclass(exc_type, KeyboardInterrupt):
+            return
+        log.critical(
+            "Unhandled top-level exception",
+            exc_info=(exc_type, exc_value, exc_traceback),
+        )
+
+    def _log_thread_exception(args: threading.ExceptHookArgs) -> None:
+        if args.exc_type is KeyboardInterrupt:
+            return
+        thread_name = args.thread.name if args.thread else "unknown"
+        log.critical(
+            "Unhandled exception in thread %s",
+            thread_name,
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+
+    try:
+        faulthandler.enable(file=sys.stderr, all_threads=True)
+        if hasattr(signal, "SIGUSR1"):
+            faulthandler.register(signal.SIGUSR1, file=sys.stderr, all_threads=True)
+    except Exception:
+        log.exception("Failed to enable faulthandler diagnostics")
+    else:
+        log.debug("Crash diagnostics enabled")
+
+    sys.excepthook = _log_unhandled_exception
+    threading.excepthook = _log_thread_exception
+    atexit.register(lambda: log.info("waybar-pilot process exiting"))
+
+    _CRASH_AIDS_INSTALLED = True
 
 
 def check_requirements() -> bool:
@@ -124,24 +173,11 @@ def _kill_existing_processes(args) -> None:
     time.sleep(0.5)
 
 
-def stop_and_exit(args) -> int:
-    """Kill any existing waybar-pilot and managed bar processes, then exit."""
-    print("Stopping waybar-pilot and managed bar processes...")
-    _kill_existing_processes(args)
-    print("Stopped.")
-    return 0
+def _build_module_command(args) -> list[str]:
+    """Build Python module command preserving current interpreter/env."""
+    cmd = [sys.executable, "-m", "waybar_pilot"]
 
-
-def _build_detached_command(args) -> list[str]:
-    """Build command for detached/background launch.
-
-    The detached child is marked via environment variable so it runs
-    the controller directly without recursively daemonizing itself.
-    """
-    cmd = ["setsid", "waybar-pilot"]
-
-    # Add all configuration arguments
-    if args.bar_height != 26:  # Only add if non-default
+    if args.bar_height != 26:
         cmd.extend(["--bar-height", str(args.bar_height)])
     if args.overlap != 10:
         cmd.extend(["--overlap", str(args.overlap)])
@@ -159,11 +195,63 @@ def _build_detached_command(args) -> list[str]:
     return cmd
 
 
+def stop_and_exit(args) -> int:
+    """Kill any existing waybar-pilot and managed bar processes, then exit."""
+    print("Stopping waybar-pilot and managed bar processes...")
+    _kill_existing_processes(args)
+    print("Stopped.")
+    return 0
+
+
+def _build_detached_command(args) -> list[str]:
+    """Build detached wrapper command."""
+    return _build_module_command(args)
+
+
+def _run_detached_wrapper(args) -> int:
+    """Run detached wrapper that supervises actual app process."""
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    log = _configure_logging(log_level)
+    _install_crash_aids()
+
+    child_env = os.environ.copy()
+    child_env.pop(DETACHED_WRAPPER_ENV, None)
+    child_env[DETACHED_CHILD_ENV] = "1"
+    child_cmd = _build_module_command(args)
+
+    log.info(
+        "Detached wrapper starting child: pid=%s ppid=%s session=%s",
+        os.getpid(),
+        os.getppid(),
+        os.getsid(0),
+    )
+    log.debug("Detached child command: %s", child_cmd)
+
+    child = subprocess.Popen(child_cmd, env=child_env)
+    return_code = child.wait()
+
+    if return_code < 0:
+        try:
+            signal_name = signal.Signals(-return_code).name
+        except ValueError:
+            signal_name = f"SIG{-return_code}"
+        log.critical(
+            "Detached child exited from signal %s (%s)",
+            signal_name,
+            -return_code,
+        )
+    else:
+        log.warning("Detached child exited with code %s", return_code)
+
+    return return_code
+
+
 def _run_detached(args) -> int:
     """Launch waybar-pilot in background and return immediately."""
     cmd = _build_detached_command(args)
     env = os.environ.copy()
-    env[DETACHED_CHILD_ENV] = "1"
+    env.pop(DETACHED_CHILD_ENV, None)
+    env[DETACHED_WRAPPER_ENV] = "1"
     log_path = _get_runtime_log_path()
 
     print(f"Starting waybar-pilot in background (log: {log_path})...")
@@ -251,6 +339,7 @@ def _run_main(args) -> int:
     """
     log_level = logging.DEBUG if args.debug else logging.INFO
     log = _configure_logging(log_level)
+    _install_crash_aids()
 
     # Check requirements first
     if not check_requirements():
@@ -370,9 +459,12 @@ Examples:
 
     args = parser.parse_args()
     detached_child = os.environ.get(DETACHED_CHILD_ENV) == "1"
+    detached_wrapper = os.environ.get(DETACHED_WRAPPER_ENV) == "1"
 
     if args.stop:
         return stop_and_exit(args)
+    if detached_wrapper:
+        return _run_detached_wrapper(args)
     if args.restart:
         return restart_and_run(args, interactive=args.interactive)
     if args.interactive or detached_child:

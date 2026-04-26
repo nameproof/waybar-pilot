@@ -74,6 +74,7 @@ class AutohideController:
 
     # --- GTK event processing ---
     GTK_MAX_EVENTS_PER_TICK = 50  # Max GTK events processed per main loop tick
+    DEBUG_HEARTBEAT_INTERVAL = 2.0  # Emit phase heartbeat in debug mode
 
     # --- Sensor retry ---
     SENSOR_RETRY_INTERVAL = 10  # Main loop ticks between sensor creation retries
@@ -111,6 +112,8 @@ class AutohideController:
             None  # Track cursor monitor to detect teleport
         )
         self._loop_tick = 0
+        self._loop_phase = "init"
+        self._last_heartbeat_at = 0.0
         self._cursor_query_reasons_this_tick: List[str] = []
         self._visible_threshold_polling_ids: Set[int] = set()
 
@@ -142,9 +145,42 @@ class AutohideController:
 
     def _signal_handler(self, signum, frame) -> None:
         """Handle shutdown signals."""
-        log.info(f"Received signal {signum}, shutting down...")
+        log.info(
+            "Received signal %s during phase=%s, shutting down...",
+            signum,
+            self._loop_phase,
+        )
         self._shutdown_requested = True
         self._running = False
+
+    def _set_loop_phase(self, phase: str) -> None:
+        """Track current main-loop phase for crash diagnostics."""
+        self._loop_phase = phase
+
+    def _log_debug_heartbeat(self, force: bool = False) -> None:
+        """Emit periodic debug heartbeat with current controller state."""
+        if not log.isEnabledFor(logging.DEBUG):
+            return
+
+        now = time.time()
+        if not force and now - self._last_heartbeat_at < self.DEBUG_HEARTBEAT_INTERVAL:
+            return
+
+        self._last_heartbeat_at = now
+        active_sensor_monitors = sorted(
+            monitor_id
+            for monitor_id, in_sensor in self._cursor_in_sensor_zone.items()
+            if in_sensor
+        )
+        log.debug(
+            "Heartbeat: tick=%s phase=%s exit_checks=%s sensors=%s visible_thresholds=%s shutdown=%s",
+            self._loop_tick,
+            self._loop_phase,
+            sorted(self._exit_checks),
+            active_sensor_monitors,
+            sorted(self._visible_threshold_polling_ids),
+            self._shutdown_requested,
+        )
 
     def initialize(self) -> bool:
         """Initialize all components."""
@@ -1024,11 +1060,14 @@ class AutohideController:
                     f"GTK event loop processing limit hit ({max_events} events)"
                 )
         except Exception:
-            pass  # Ignore GTK errors
+            log.exception(
+                "GTK event processing failed during phase=%s", self._loop_phase
+            )
 
     def run(self) -> None:
         """Main control loop."""
         self._running = True
+        self._set_loop_phase("run")
 
         try:
             while self._running:
@@ -1053,6 +1092,7 @@ class AutohideController:
                             need_sensor_update = True
 
                 if need_sensor_update and self._cursor_manager:
+                    self._set_loop_phase("sensor-update")
                     autohide_ids = list(self._resolved_selection.autohide_ids)
                     if not self._resolved_selection.monitor_lists_configured:
                         autohide_ids = [
@@ -1064,36 +1104,46 @@ class AutohideController:
                     self._sensors_need_update = False
 
                 # Process GTK events (must be done for cursor sensors to work)
+                self._set_loop_phase("gtk-events")
                 self._process_gtk_events()
 
                 # Process events (both cursor and Hyprland events)
+                self._set_loop_phase("events")
                 self._process_events()
 
                 # While an autohide bar is visible, enforce the configured hide
                 # threshold from actual cursor position rather than GTK crossing
                 # coordinates alone.
+                self._set_loop_phase("visible-thresholds")
                 self._process_visible_cursor_thresholds()
 
                 # Process scheduled hide rechecks with one shared cursor query.
+                self._set_loop_phase("exit-checks")
                 self._process_exit_checks()
 
                 # Check process health
+                self._set_loop_phase("health-check")
                 self._check_process_health()
 
+                self._set_loop_phase("finish-tick")
                 self._finish_loop_tick()
+                self._log_debug_heartbeat()
 
                 # Short sleep to prevent busy-waiting but still be responsive
+                self._set_loop_phase("sleep")
                 time.sleep(self.MAIN_LOOP_INTERVAL)
 
         except KeyboardInterrupt:
             pass
         finally:
+            self._set_loop_phase("shutdown")
+            self._log_debug_heartbeat(force=True)
             self._finish_loop_tick()
             self.shutdown()
 
     def shutdown(self) -> None:
         """Graceful shutdown."""
-        log.info("Shutting down...")
+        log.info("Shutting down (last phase=%s)...", self._loop_phase)
 
         self._exit_checks.clear()
 
