@@ -152,10 +152,27 @@ def _kill_existing_processes(args) -> None:
     except Exception:
         pass
 
-    # Also try to kill any other python processes running waybar-pilot
+    # Also try to kill any other python processes running waybar_pilot
     try:
         result = subprocess.run(
-            ["pgrep", "-f", "python.*waybar-pilot"], capture_output=True, text=True
+            ["pgrep", "-f", "python.*waybar_pilot"], capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                if line:
+                    try:
+                        pid = int(line.strip())
+                        if pid != current_pid:
+                            os.kill(pid, 9)
+                    except (ValueError, ProcessLookupError):
+                        pass
+    except Exception:
+        pass
+
+    # Fallback: catch shebang/alias runs not matched above
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "waybar_pilot"], capture_output=True, text=True
         )
         if result.returncode == 0:
             for line in result.stdout.strip().split("\n"):

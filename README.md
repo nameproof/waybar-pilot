@@ -44,7 +44,7 @@ Recommended install:
 git clone https://github.com/nameproof/waybar-pilot.git
 cd waybar-pilot
 
-pipx install --system-site-packages --python /usr/bin/python3 .
+pipx install --system-site-packages .
 ```
 
 Plain `pipx install .` is not recommended here because isolated virtualenvs may not see the system GTK / GI Python modules this project uses.
@@ -60,7 +60,7 @@ pipx uninstall waybar-pilot
 Upgrade:
 
 ```bash
-pipx upgrade --system-site-packages --python /usr/bin/python3 waybar-pilot
+pipx upgrade --system-site-packages waybar-pilot
 ```
 
 ## Development
