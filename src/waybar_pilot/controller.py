@@ -271,12 +271,18 @@ class AutohideController:
     def _kill_existing_waybar(self) -> None:
         """Kill any existing waybar processes."""
         try:
+            # Soft kill first, then escalate
+            subprocess.run(
+                ["pkill", "-15", "-x", self._config.waybar_proc],
+                check=False,
+                capture_output=True,
+            )
+            time.sleep(self.PROCESS_KILL_SETTLE)
             subprocess.run(
                 ["pkill", "-9", "-x", self._config.waybar_proc],
                 check=False,
                 capture_output=True,
             )
-            time.sleep(self.PROCESS_KILL_SETTLE)
         except (FileNotFoundError, OSError):
             pass
 

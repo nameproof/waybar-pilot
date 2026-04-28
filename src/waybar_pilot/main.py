@@ -1,7 +1,7 @@
 """Waybar autohide - entry point."""
 
-import atexit
 import argparse
+import atexit
 import faulthandler
 import logging
 import os
@@ -19,13 +19,120 @@ LOG_DATE_FORMAT = "%H:%M:%S"
 _CRASH_AIDS_INSTALLED = False
 
 
-def _get_runtime_log_path() -> Path:
-    """Return the log path for detached/background runs."""
+def _get_runtime_dir() -> Path:
+    """Return the runtime state directory for waybar-pilot."""
     runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
     if runtime_dir:
-        return Path(runtime_dir) / "waybar-pilot.log"
+        return Path(runtime_dir) / "waybar-pilot"
 
-    return Path("/tmp") / f"waybar-pilot-{os.getuid()}.log"
+    return Path("/tmp") / f"waybar-pilot-{os.getuid()}"
+
+
+def _get_runtime_log_path() -> Path:
+    """Return the log path for detached/background runs."""
+    return _get_runtime_dir() / "waybar-pilot.log"
+
+
+def _get_pid_file_path() -> Path:
+    """Return the PID file path."""
+    return _get_runtime_dir() / "waybar-pilot.pid"
+
+
+def _read_pid_file() -> int | None:
+    """Read PID from file if it exists and is valid."""
+    path = _get_pid_file_path()
+    if not path.exists():
+        return None
+
+    try:
+        return int(path.read_text().strip())
+    except (ValueError, OSError):
+        return None
+
+
+def _is_pid_alive(pid: int) -> bool:
+    """Check if a process with the given PID is still alive."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def _is_our_process(pid: int) -> bool:
+    """Check if PID belongs to a waybar-pilot process."""
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            cmdline = f.read().decode(errors="ignore").lower()
+        return any(
+            x in cmdline for x in ("waybar_pilot", "waybar-pilot", "-m waybar_pilot")
+        )
+    except (FileNotFoundError, PermissionError, OSError):
+        return False
+
+
+def _write_pid_file() -> None:
+    """Write current PID to the PID file."""
+    path = _get_pid_file_path()
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.write_text(str(os.getpid()))
+    os.chmod(path, 0o600)
+
+
+def _remove_pid_file() -> None:
+    """Remove the PID file if it exists."""
+    path = _get_pid_file_path()
+    if path.exists():
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+def _kill_by_pid_file() -> bool:
+    """Kill the process referenced by the PID file.
+
+    Returns True if a process was found and signaled, False otherwise.
+    """
+    pid = _read_pid_file()
+    if pid is None:
+        return False
+
+    if not _is_pid_alive(pid):
+        _remove_pid_file()
+        return False
+
+    if not _is_our_process(pid):
+        _remove_pid_file()
+        return False
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        _remove_pid_file()
+        return False
+
+    # Wait up to 2 seconds for graceful shutdown
+    for _ in range(20):
+        time.sleep(0.1)
+        if not _is_pid_alive(pid):
+            _remove_pid_file()
+            return True
+
+    # Escalate to SIGKILL
+    log = logging.getLogger("waybar-pilot")
+    log.debug("Escalating to SIGKILL for pid=%s", pid)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        pass
+
+    time.sleep(0.3)
+    if not _is_pid_alive(pid):
+        _remove_pid_file()
+        return True
+
+    return False
 
 
 def _configure_logging(level: int = logging.INFO) -> logging.Logger:
@@ -130,61 +237,29 @@ def _kill_existing_processes(args) -> None:
 
     current_pid = os.getpid()
 
-    # First kill all managed bar processes (the children)
-    # This must be done BEFORE killing waybar-pilot parent
+    # Prefer PID file for clean shutdown
+    _kill_by_pid_file()
+
+    # Fallback: kill managed bar processes directly
     subprocess.run(["pkill", "-9", "-x", procname], capture_output=True)
 
-    # Kill waybar-pilot processes but NOT ourselves
-    # Use pgrep to find PIDs, then kill excluding current_pid
-    try:
-        result = subprocess.run(
-            ["pgrep", "-x", "waybar-pilot"], capture_output=True, text=True
-        )
-        if result.returncode == 0:
-            for line in result.stdout.strip().split("\n"):
-                if line:
-                    try:
-                        pid = int(line.strip())
-                        if pid != current_pid:
-                            os.kill(pid, 9)
-                    except (ValueError, ProcessLookupError):
-                        pass
-    except Exception:
-        pass
-
-    # Also try to kill any other python processes running waybar_pilot
-    try:
-        result = subprocess.run(
-            ["pgrep", "-f", "python.*waybar_pilot"], capture_output=True, text=True
-        )
-        if result.returncode == 0:
-            for line in result.stdout.strip().split("\n"):
-                if line:
-                    try:
-                        pid = int(line.strip())
-                        if pid != current_pid:
-                            os.kill(pid, 9)
-                    except (ValueError, ProcessLookupError):
-                        pass
-    except Exception:
-        pass
-
-    # Fallback: catch shebang/alias runs not matched above
-    try:
-        result = subprocess.run(
-            ["pgrep", "-f", "waybar_pilot"], capture_output=True, text=True
-        )
-        if result.returncode == 0:
-            for line in result.stdout.strip().split("\n"):
-                if line:
-                    try:
-                        pid = int(line.strip())
-                        if pid != current_pid:
-                            os.kill(pid, 9)
-                    except (ValueError, ProcessLookupError):
-                        pass
-    except Exception:
-        pass
+    # Fallback: broad pgrep if PID file was missing/stale
+    for pattern in ("waybar-pilot", "python.*waybar_pilot", "waybar_pilot"):
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", pattern], capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                for line in result.stdout.strip().split("\n"):
+                    if line:
+                        try:
+                            pid = int(line.strip())
+                            if pid != current_pid:
+                                os.kill(pid, 9)
+                        except (ValueError, ProcessLookupError):
+                            pass
+        except Exception:
+            pass
 
     # Wait for processes to die
     time.sleep(0.5)
@@ -215,6 +290,12 @@ def _build_module_command(args) -> list[str]:
 def stop_and_exit(args) -> int:
     """Kill any existing waybar-pilot and managed bar processes, then exit."""
     print("Stopping waybar-pilot and managed bar processes...")
+
+    if _kill_by_pid_file():
+        print("Stopped.")
+        return 0
+
+    # Fallback to old behavior
     _kill_existing_processes(args)
     print("Stopped.")
     return 0
@@ -357,6 +438,22 @@ def _run_main(args) -> int:
     log_level = logging.DEBUG if args.debug else logging.INFO
     log = _configure_logging(log_level)
     _install_crash_aids()
+
+    # Implicit restart: kill any live instance from PID file
+    current_pid = os.getpid()
+    existing_pid = _read_pid_file()
+    if existing_pid is not None and existing_pid != current_pid:
+        if _is_pid_alive(existing_pid) and _is_our_process(existing_pid):
+            log.info(
+                "Implicit restart: stopping existing instance (pid=%s)", existing_pid
+            )
+            _kill_by_pid_file()
+        else:
+            _remove_pid_file()
+
+    # Register PID file and cleanup
+    _write_pid_file()
+    atexit.register(_remove_pid_file)
 
     # Check requirements first
     if not check_requirements():
