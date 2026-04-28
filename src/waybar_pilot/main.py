@@ -19,6 +19,52 @@ LOG_DATE_FORMAT = "%H:%M:%S"
 _CRASH_AIDS_INSTALLED = False
 
 
+class _Spinner:
+    """Minimal terminal spinner, no dependencies."""
+
+    _FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    _INTERVAL = 0.08
+
+    def __init__(self, message: str):
+        self._message = message
+        self._running = False
+        self._thread: threading.Thread | None = None
+        self._frame_idx = 0
+
+    def start(self) -> None:
+        if not sys.stdout.isatty():
+            print(self._message, flush=True)
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._spin, daemon=True)
+        self._thread.start()
+
+    def update(self, message: str) -> None:
+        self._message = message
+
+    def _spin(self) -> None:
+        while self._running:
+            frame = self._FRAMES[self._frame_idx % len(self._FRAMES)]
+            sys.stdout.write(f"\r{frame} {self._message}")
+            sys.stdout.flush()
+            self._frame_idx += 1
+            time.sleep(self._INTERVAL)
+
+    def stop(self, final: str | None = None) -> None:
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=0.5)
+        if sys.stdout.isatty():
+            width = len(self._message) + 3
+            sys.stdout.write("\r" + " " * width + "\r")
+            if final:
+                sys.stdout.write(final + "\n")
+            sys.stdout.flush()
+        else:
+            if final:
+                print(final, flush=True)
+
+
 def _get_runtime_dir() -> Path:
     """Return the runtime state directory for waybar-pilot."""
     runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
@@ -289,15 +335,16 @@ def _build_module_command(args) -> list[str]:
 
 def stop_and_exit(args) -> int:
     """Kill any existing waybar-pilot and managed bar processes, then exit."""
-    print("Stopping waybar-pilot and managed bar processes...")
+    spinner = _Spinner("Stopping waybar-pilot...")
+    spinner.start()
 
     if _kill_by_pid_file():
-        print("Stopped.")
+        spinner.stop("Stopped.")
         return 0
 
     # Fallback to old behavior
     _kill_existing_processes(args)
-    print("Stopped.")
+    spinner.stop("Stopped.")
     return 0
 
 
@@ -352,8 +399,6 @@ def _run_detached(args) -> int:
     env[DETACHED_WRAPPER_ENV] = "1"
     log_path = _get_runtime_log_path()
 
-    print(f"Starting waybar-pilot in background (log: {log_path})...")
-
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     with log_path.open("w", encoding="utf-8") as log_file:
@@ -377,15 +422,21 @@ def restart_and_run(args, interactive: bool = False) -> int:
     Returns:
         Exit code from main() (or 0 if detached to background)
     """
-    print("Restarting waybar-pilot...")
+    spinner = _Spinner("Restarting waybar-pilot...")
+    spinner.start()
     _kill_existing_processes(args)
 
+    spinner.update("Starting waybar-pilot...")
     if interactive:
-        # Stay in foreground, show logs
+        spinner.stop("Started waybar-pilot.")
         print("Running in interactive mode (Ctrl+C to stop)")
         return _run_main(args)
     else:
-        return _run_detached(args)
+        _run_detached(args)
+        time.sleep(0.5)
+        log_path = _get_runtime_log_path()
+        spinner.stop(f"Started waybar-pilot (log: {log_path})")
+        return 0
 
 
 def _parse_monitor_list(value):
@@ -583,7 +634,9 @@ Examples:
         return restart_and_run(args, interactive=args.interactive)
     if args.interactive or detached_child:
         return _run_main(args)
-    return _run_detached(args)
+    _run_detached(args)
+    print(f"Started waybar-pilot (log: {_get_runtime_log_path()})")
+    return 0
 
 
 if __name__ == "__main__":
