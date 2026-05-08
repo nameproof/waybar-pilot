@@ -469,6 +469,7 @@ class AutohideController:
                 ):
                     self._handle_monitor_change(event)
                     needs_refresh = True
+                    needs_visibility_update = True
                 elif event.event_type == EventType.WORKSPACE_CREATED:
                     needs_refresh = True
                 elif event.event_type == EventType.WORKSPACE_DESTROYED:
@@ -746,6 +747,12 @@ class AutohideController:
             log.info(f"Removing waybar for monitor {monitor_id} ({monitor_name})")
             self._waybar_manager.kill_monitor(monitor_id)
             self._state_engine.remove_monitor_state(monitor_id)
+            self._fullscreen_handler.remove_monitor(monitor_id)
+            self._exit_checks.pop(monitor_id, None)
+            self._cursor_in_sensor_zone.pop(monitor_id, None)
+            self._waybar_start_times.pop(monitor_id, None)
+            if self._last_cursor_monitor == monitor_id:
+                self._last_cursor_monitor = None
             if monitor_name and self._cursor_manager:
                 self._cursor_manager.remove_sensor(monitor_name)
 

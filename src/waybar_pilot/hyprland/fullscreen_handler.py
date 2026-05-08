@@ -1,10 +1,13 @@
 """Fullscreen handler for disabling cursor sensors during fullscreen."""
 
 from dataclasses import dataclass, field
+import logging
 from typing import Dict, List, Optional, Set
 import time
 
 from .models import Client, Monitor
+
+log = logging.getLogger("waybar-pilot")
 
 
 @dataclass
@@ -45,7 +48,13 @@ class FullscreenHandler:
 
     def remove_monitor(self, monitor_id: int) -> None:
         """Remove state for a monitor (e.g., when monitor is disconnected)."""
-        self._states.pop(monitor_id, None)
+        removed = self._states.pop(monitor_id, None)
+        if removed:
+            log.debug(
+                "Removed fullscreen state for monitor %s (was fullscreen=%s)",
+                monitor_id,
+                removed.is_fullscreen,
+            )
 
     def update_from_clients(
         self, clients: List[Client], monitors: List[Monitor]
@@ -80,15 +89,25 @@ class FullscreenHandler:
             is_fullscreen = monitor.id in fullscreen_by_monitor
 
             if is_fullscreen != was_fullscreen:
-                state.is_fullscreen = is_fullscreen
+                workspace_id = None
                 if is_fullscreen:
                     client_addr, workspace_id = fullscreen_by_monitor[monitor.id]
                     state.fullscreen_client = client_addr
                     state.fullscreen_workspace_id = workspace_id
                 else:
+                    workspace_id = state.fullscreen_workspace_id
                     state.fullscreen_client = None
                     state.fullscreen_workspace_id = None
+                state.is_fullscreen = is_fullscreen
                 state.last_change_time = time.time()
+                log.info(
+                    "Monitor %s (%s): fullscreen %s -> %s (workspace=%s)",
+                    monitor.id,
+                    monitor.name,
+                    was_fullscreen,
+                    is_fullscreen,
+                    workspace_id,
+                )
 
     def is_fullscreen(
         self, monitor_id: int, active_workspace_id: Optional[int] = None
