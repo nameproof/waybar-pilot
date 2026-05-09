@@ -79,6 +79,9 @@ class AutohideController:
     # --- Sensor retry ---
     SENSOR_RETRY_INTERVAL = 10  # Main loop ticks between sensor creation retries
 
+    # --- Startup coordination ---
+    STARTUP_EXTERNAL_WAYBAR_WAIT = 3.0  # Seconds to wait for Omarchy's waybar to start
+
     def __init__(self, config: Config):
         """Initialize the controller.
 
@@ -200,9 +203,6 @@ class AutohideController:
             # Initialize waybar manager
             self._waybar_manager = WaybarManager(self._config)
 
-            # Kill any existing waybar processes
-            self._kill_existing_waybar()
-
             # Get initial state
             self._refresh_state()
             self._resolve_monitor_selection(strict=True)
@@ -212,6 +212,12 @@ class AutohideController:
                 log.info(
                     f"Detected monitor: {m.name} (ID {m.id}, {m.width}x{m.height})"
                 )
+
+            # Wait for Omarchy's waybar to start + network to come up
+            self._wait_for_startup_conditions()
+
+            # Kill any existing waybar processes
+            self._kill_existing_waybar()
 
             # Determine which monitors to manage
             managed_ids = self._get_managed_monitor_ids()
@@ -268,10 +274,61 @@ class AutohideController:
             traceback.print_exc()
             return False
 
-    def _kill_existing_waybar(self) -> None:
-        """Kill any existing waybar processes."""
+    def _network_available(self) -> bool:
+        """Check if network is reachable."""
+        import socket
+
         try:
-            # Soft kill first, then escalate
+            with socket.create_connection(("1.1.1.1", 53), timeout=1):
+                pass
+            return True
+        except OSError:
+            return False
+
+    def _wait_for_startup_conditions(self) -> None:
+        """Wait for network and external waybar startup before launching ours.
+
+        Omarchy's waybar starts shortly after Hyprland. We need to give it
+        time to appear so our subsequent pkill catches it. We also wait for
+        network so modules like weather work on first run.
+        """
+        network_wait = self._config.wait_for_network
+        external_wait = self.STARTUP_EXTERNAL_WAYBAR_WAIT
+        deadline = time.time() + max(network_wait, external_wait)
+
+        network_ready = network_wait <= 0
+        external_wait_done = False
+        start = time.time()
+
+        while time.time() < deadline:
+            if not network_ready:
+                network_ready = self._network_available()
+
+            if not external_wait_done:
+                if self._waybar_manager and self._waybar_manager.has_external_waybars():
+                    external_wait_done = True
+                elif time.time() - start >= external_wait:
+                    external_wait_done = True
+
+            if network_ready and external_wait_done:
+                if time.time() - start > 0.5:
+                    log.info(
+                        "Startup conditions met after %.1fs",
+                        time.time() - start,
+                    )
+                return
+
+            time.sleep(0.2)
+
+        log.warning(
+            "Startup timeout: network=%s external=%s",
+            network_ready,
+            external_wait_done,
+        )
+
+    def _kill_existing_waybar(self) -> None:
+        """Kill any existing waybar processes aggressively."""
+        try:
             subprocess.run(
                 ["pkill", "-15", "-x", self._config.waybar_proc],
                 check=False,

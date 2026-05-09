@@ -1,7 +1,6 @@
 """Waybar manager for handling multiple monitor instances."""
 
 import logging
-import time
 from typing import Dict, Iterator, List, Optional
 
 from ..config import Config, WaybarState
@@ -30,196 +29,76 @@ class WaybarManager:
         self._config = config
         self._instances: Dict[int, WaybarInstance] = {}
 
-    def _kill_external_waybar_for_monitor(self, monitor: Monitor) -> bool:
-        """Kill any externally-started waybar on this monitor.
-
-        This prevents duplicate waybars when external tools (like omarchy-theme-install)
-        kill and restart waybar. We detect external waybar processes by checking if
-        WAYBAR_MONITOR_ID env var is not set (our instances set this).
-
-        Args:
-            monitor: Monitor to check for external waybar
-
-        Returns:
-            True if external waybar was killed, False otherwise
-        """
+    def has_external_waybars(self) -> bool:
+        """Quick check: any waybar process not managed by us."""
         import subprocess
-        import os
-        import signal
-
-        killed = False
 
         try:
-            # Find all waybar processes
             result = subprocess.run(
-                ["pgrep", "-a", "-x", "waybar"], capture_output=True, text=True
+                ["pgrep", "-x", "waybar"], capture_output=True, text=True
             )
-
             if result.returncode != 0:
-                log.debug(f"No waybar processes found for monitor {monitor.name}")
                 return False
-
-            log.debug(
-                f"Checking {len(result.stdout.strip().split(chr(10)))} waybar processes for monitor {monitor.name}"
+            total_pids = len(
+                [ln for ln in result.stdout.strip().split("\n") if ln.strip()]
             )
+            return total_pids > len(self._instances)
+        except Exception:
+            return False
 
-            for line in result.stdout.strip().split("\n"):
-                if not line:
-                    continue
-
-                parts = line.split(maxsplit=1)
-                if len(parts) < 1:
-                    continue
-
-                try:
-                    pid = int(parts[0])
-                except ValueError:
-                    continue
-
-                # Check if this waybar is using our monitor
-                try:
-                    # Read process environment to check WAYBAR_MONITOR_ID
-                    env_result = subprocess.run(
-                        ["cat", f"/proc/{pid}/environ"], capture_output=True, text=True
-                    )
-
-                    if env_result.returncode == 0:
-                        env_vars = env_result.stdout.split("\0")
-                        has_monitor_id = any(
-                            var.startswith("WAYBAR_MONITOR_ID=") for var in env_vars
-                        )
-
-                        if has_monitor_id:
-                            log.debug(
-                                f"Skipping managed waybar (PID {pid}) with WAYBAR_MONITOR_ID"
-                            )
-                            continue
-
-                        # This is an external waybar - check if it's using our monitor
-                        cmdline_result = subprocess.run(
-                            ["cat", f"/proc/{pid}/cmdline"],
-                            capture_output=True,
-                            text=True,
-                        )
-
-                        if cmdline_result.returncode == 0:
-                            cmdline = cmdline_result.stdout.replace("\0", " ")
-                            log.debug(
-                                f"External waybar (PID {pid}) cmdline: {cmdline[:100]}..."
-                            )
-
-                            # Check if this waybar is outputting to our monitor
-                            # Waybar uses --output or -o to specify monitor
-                            if (
-                                f"--output {monitor.name}" in cmdline
-                                or f"-o {monitor.name}" in cmdline
-                            ):
-                                log.info(
-                                    f"Killing external waybar (PID {pid}) on monitor {monitor.name}"
-                                )
-                                os.kill(pid, signal.SIGTERM)
-                                time.sleep(0.1)
-                                try:
-                                    os.kill(pid, signal.SIGKILL)
-                                except ProcessLookupError:
-                                    pass
-                                killed = True
-                            else:
-                                log.debug(
-                                    f"External waybar (PID {pid}) not targeting {monitor.name}"
-                                )
-
-                except (ProcessLookupError, PermissionError, OSError) as e:
-                    log.debug(f"Error checking PID {pid}: {e}")
-                    continue
-
-        except Exception as e:
-            log.warning(f"Error in _kill_external_waybar_for_monitor: {e}")
-
-        return killed
-
-    def _kill_all_external_waybars(self) -> int:
+    def kill_all_external_waybars(self) -> int:
         """Kill all externally-started waybar processes.
 
-        This is called when external tools (like omarchy) restart waybar,
-        which typically creates a single waybar instance that shows on all monitors.
-        We kill all external waybars so we can start our managed per-monitor instances.
-
-        Returns:
-            Number of external waybars killed
+        Compares all waybar PIDs against our managed instances. Any PID
+        not in our set is considered external and killed.
         """
         import subprocess
         import os
         import signal
 
-        killed_count = 0
-        try:
-            # Find all waybar processes
-            result = subprocess.run(
-                ["pgrep", "-a", "-x", "waybar"], capture_output=True, text=True
-            )
+        # Collect managed PIDs
+        managed_pids: set[int] = set()
+        for instance in self._instances.values():
+            try:
+                managed_pids.add(instance.pid)
+            except RuntimeError:
+                pass
 
+        killed = 0
+        try:
+            result = subprocess.run(
+                ["pgrep", "-x", "waybar"], capture_output=True, text=True
+            )
             if result.returncode != 0:
-                log.debug("No waybar processes found to kill")
                 return 0
 
-            log.info(
-                f"Found {len(result.stdout.strip().split(chr(10)))} waybar processes, checking for external ones"
-            )
-
             for line in result.stdout.strip().split("\n"):
-                if not line:
+                pid_str = line.strip()
+                if not pid_str:
                     continue
-
-                parts = line.split(maxsplit=1)
-                if len(parts) < 1:
-                    continue
-
                 try:
-                    pid = int(parts[0])
+                    pid = int(pid_str)
                 except ValueError:
                     continue
 
-                try:
-                    # Read process environment to check WAYBAR_MONITOR_ID
-                    env_result = subprocess.run(
-                        ["cat", f"/proc/{pid}/environ"], capture_output=True, text=True
-                    )
-
-                    if env_result.returncode == 0:
-                        env_vars = env_result.stdout.split("\0")
-                        has_monitor_id = any(
-                            var.startswith("WAYBAR_MONITOR_ID=") for var in env_vars
-                        )
-
-                        if has_monitor_id:
-                            log.debug(f"Skipping managed waybar (PID {pid})")
-                            continue
-
-                        # This is an external waybar - kill it
-                        log.info(f"Killing external waybar (PID {pid})")
-                        try:
-                            os.kill(pid, signal.SIGTERM)
-                            time.sleep(0.1)
-                            try:
-                                os.kill(pid, signal.SIGKILL)
-                            except ProcessLookupError:
-                                pass
-                            killed_count += 1
-                        except (ProcessLookupError, PermissionError):
-                            pass
-
-                except (ProcessLookupError, PermissionError, OSError) as e:
-                    log.debug(f"Error checking/killing PID {pid}: {e}")
+                if pid in managed_pids:
                     continue
 
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    killed += 1
+                except (ProcessLookupError, PermissionError):
+                    pass
         except Exception as e:
-            log.warning(f"Error in _kill_all_external_waybars: {e}")
+            log.warning(f"Error in kill_all_external_waybars: {e}")
 
-        if killed_count > 0:
-            log.info(f"Killed {killed_count} external waybar(s)")
-
-        return killed_count
+        if killed > 0:
+            log.info(f"Killed {killed} external waybar(s)")
+        return killed
 
     def start_for_monitor(self, monitor: Monitor) -> WaybarInstance:
         """Start waybar for a specific monitor.
@@ -238,10 +117,10 @@ class WaybarManager:
 
         log.info(f"Starting waybar for monitor {monitor.name} (ID {monitor.id})")
 
-        # Kill any external waybar on this monitor before starting ours
-        external_killed = self._kill_external_waybar_for_monitor(monitor)
-        if external_killed:
-            log.info(f"Killed external waybar on monitor {monitor.name}")
+        # Kill any external waybars before starting ours
+        killed = self.kill_all_external_waybars()
+        if killed > 0:
+            log.info(f"Killed {killed} external waybar(s)")
 
         instance = WaybarInstance(
             monitor_id=monitor.id,
@@ -336,7 +215,7 @@ class WaybarManager:
             log.info(
                 f"Detected {len(dead_ids)} dead waybar instances, killing all external waybars"
             )
-            self._kill_all_external_waybars()
+            self.kill_all_external_waybars()
 
         for monitor_id in dead_ids:
             # Find the monitor in available list

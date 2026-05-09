@@ -106,10 +106,10 @@ Find your monitor. CLI options accept `name` or `serial`:
 hyprctl -j monitors
 ```
 
-Add to your Hyprland config to start on launch. The sleep gives the original waybar time to start so `waybar-pilot` can replace it cleanly if needed:
+Add to your Hyprland config to start on launch:
 
 ```ini
-exec-once = sleep 2 && waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
+exec-once = waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
 ```
 
 ### Command Line Options
@@ -134,6 +134,7 @@ exec-once = sleep 2 && waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
 | `--hide-monitors` | Comma-separated monitor selectors for autohide (`DP-1`, `ABC123`) | All monitors |
 | `--show-monitors` | Comma-separated monitor selectors to always show (disable autohide) | None |
 | `--initial-state` | Initial state for hide-monitors: `0`=hidden or `1`=visible | `0` |
+| `--wait-for-network` | Seconds to wait for network before starting waybar | `5` |
 
 
 ### Examples

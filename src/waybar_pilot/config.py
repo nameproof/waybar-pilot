@@ -62,6 +62,9 @@ class Config:
     # Initial state
     initial_state: WaybarState
 
+    # Network wait
+    wait_for_network: int
+
     def __post_init__(self):
         overlap = set(self.autohide_monitors) & set(self.show_monitors)
         if overlap:
@@ -173,6 +176,9 @@ class Config:
         # Initial state
         initial_state = WaybarState(args.initial_state)
 
+        # Network wait
+        wait_for_network = getattr(args, "wait_for_network", 5)
+
         return cls(
             bar_height=bar_height,
             height_threshold=height_threshold,
@@ -180,6 +186,7 @@ class Config:
             autohide_monitors=autohide_monitors,
             show_monitors=show_monitors,
             initial_state=initial_state,
+            wait_for_network=wait_for_network,
         )
 
     def __str__(self) -> str:

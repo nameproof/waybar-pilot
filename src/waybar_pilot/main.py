@@ -327,6 +327,8 @@ def _build_module_command(args) -> list[str]:
         cmd.extend(["--show-monitors", ",".join(map(str, args.show_monitors))])
     if args.initial_state != "0":
         cmd.extend(["--initial-state", args.initial_state])
+    if getattr(args, "wait_for_network", 5) != 5:
+        cmd.extend(["--wait-for-network", str(args.wait_for_network)])
     if args.debug:
         cmd.append("--debug")
 
@@ -620,6 +622,12 @@ Examples:
         type=_initial_state,
         default="0",
         help="Initial state: 0=hidden, 1=visible (default: 0)",
+    )
+    parser.add_argument(
+        "--wait-for-network",
+        type=_non_negative_int,
+        default=5,
+        help="Seconds to wait for network before starting waybar (default: 5)",
     )
 
     args = parser.parse_args()
