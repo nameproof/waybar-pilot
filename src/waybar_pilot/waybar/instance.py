@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from ..config import Config, WaybarState
+from ..config import Config, WAYBAR_PROC, WaybarState
 
 
 @dataclass
@@ -131,13 +131,19 @@ class WaybarInstance:
         env["WAYBAR_MONITOR_ID"] = str(self.monitor_id)
 
         self._process = subprocess.Popen(
-            [self.config.waybar_proc, "-c", str(self._config_path)],
+            [WAYBAR_PROC, "-c", str(self._config_path)],
             env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
 
         time.sleep(0.3)  # Give waybar time to start
+        return_code = self._process.poll()
+        if return_code is not None:
+            self._cleanup()
+            raise RuntimeError(
+                f"{WAYBAR_PROC} exited during startup with code {return_code}"
+            )
         self._state = WaybarState.VISIBLE
 
     @property

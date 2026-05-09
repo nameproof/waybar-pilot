@@ -10,7 +10,7 @@ import time
 from queue import Empty, Queue
 from typing import Dict, List, Optional, Set
 
-from .config import Config, ResolvedMonitorSelection, WaybarState
+from .config import Config, ResolvedMonitorSelection, WAYBAR_PROC, WaybarState
 from .cursor import CursorEnter, CursorLeave, CursorManager, CursorSensor
 from .hyprland import (
     Client,
@@ -330,13 +330,13 @@ class AutohideController:
         """Kill any existing waybar processes aggressively."""
         try:
             subprocess.run(
-                ["pkill", "-15", "-x", self._config.waybar_proc],
+                ["pkill", "-15", "-x", WAYBAR_PROC],
                 check=False,
                 capture_output=True,
             )
             time.sleep(self.PROCESS_KILL_SETTLE)
             subprocess.run(
-                ["pkill", "-9", "-x", self._config.waybar_proc],
+                ["pkill", "-9", "-x", WAYBAR_PROC],
                 check=False,
                 capture_output=True,
             )

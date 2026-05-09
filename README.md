@@ -130,7 +130,6 @@ exec-once = waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
 |--------|-------------|---------|
 | `--bar-height` | Waybar height in pixels | `26` |
 | `--overlap` | Extra pixels below the bar used for overlap and leave detection | `10` |
-| `--procname` | Process name to manage | `waybar` |
 | `--hide-monitors` | Comma-separated monitor selectors for autohide (`DP-1`, `ABC123`) | All monitors |
 | `--show-monitors` | Comma-separated monitor selectors to always show (disable autohide) | None |
 | `--initial-state` | Initial state for hide-monitors: `0`=hidden or `1`=visible | `0` |

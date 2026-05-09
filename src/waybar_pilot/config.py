@@ -17,6 +17,7 @@ class WaybarState(StrEnum):
 
 
 _CONNECTOR_PATTERN = re.compile(r"^(eDP|DP|HDMI|DVI|VGA|WL|LVDS|Virtual)-")
+WAYBAR_PROC = "waybar"
 
 
 @dataclass(frozen=True)
@@ -51,9 +52,6 @@ class Config:
     # Bar dimensions
     bar_height: int
     height_threshold: int
-
-    # Process management
-    waybar_proc: str
 
     # Monitor configuration
     autohide_monitors: List[str]
@@ -164,11 +162,6 @@ class Config:
         if height_threshold < 0:
             raise ValueError(f"overlap must be non-negative, got {height_threshold}")
 
-        # Process name
-        waybar_proc = args.procname
-        if not waybar_proc or not waybar_proc.strip():
-            raise ValueError("procname cannot be empty")
-
         # Monitor selector lists (already parsed as lists by argparse)
         autohide_monitors = args.hide_monitors if args.hide_monitors else []
         show_monitors = args.show_monitors if args.show_monitors else []
@@ -182,7 +175,6 @@ class Config:
         return cls(
             bar_height=bar_height,
             height_threshold=height_threshold,
-            waybar_proc=waybar_proc,
             autohide_monitors=autohide_monitors,
             show_monitors=show_monitors,
             initial_state=initial_state,

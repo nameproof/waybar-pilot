@@ -6,11 +6,14 @@ import faulthandler
 import logging
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
 import threading
 import time
+
+from .config import WAYBAR_PROC
 
 DETACHED_CHILD_ENV = "WAYBAR_PILOT_DETACHED_CHILD"
 DETACHED_WRAPPER_ENV = "WAYBAR_PILOT_DETACHED_WRAPPER"
@@ -251,6 +254,27 @@ def check_requirements() -> bool:
     """
     log = logging.getLogger("waybar-pilot")
 
+    waybar_path = shutil.which(WAYBAR_PROC)
+    if waybar_path is None:
+        log.error("Missing required dependency - waybar not found in PATH")
+        return False
+
+    try:
+        result = subprocess.run(
+            [WAYBAR_PROC, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError) as e:
+        log.error("Failed to run %s --version: %s", WAYBAR_PROC, e)
+        return False
+
+    version_output = f"{result.stdout}\n{result.stderr}".lower()
+    if result.returncode != 0 or "waybar" not in version_output:
+        log.error("%s --version did not return expected Waybar output", WAYBAR_PROC)
+        return False
+
     try:
         import gi
 
@@ -276,18 +300,13 @@ def _kill_existing_processes(args) -> None:
     Args:
         args: Parsed command line arguments
     """
-    # Keep managed process name consistent with --procname.
-    procname = (
-        args.procname.strip() if args.procname and args.procname.strip() else "waybar"
-    )
-
     current_pid = os.getpid()
 
     # Prefer PID file for clean shutdown
     _kill_by_pid_file()
 
     # Fallback: kill managed bar processes directly
-    subprocess.run(["pkill", "-9", "-x", procname], capture_output=True)
+    subprocess.run(["pkill", "-9", "-x", WAYBAR_PROC], capture_output=True)
 
     # Fallback: broad pgrep if PID file was missing/stale
     for pattern in ("waybar-pilot", "python.*waybar_pilot", "waybar_pilot"):
@@ -319,8 +338,6 @@ def _build_module_command(args) -> list[str]:
         cmd.extend(["--bar-height", str(args.bar_height)])
     if args.overlap != 10:
         cmd.extend(["--overlap", str(args.overlap)])
-    if args.procname != "waybar":
-        cmd.extend(["--procname", args.procname])
     if args.hide_monitors:
         cmd.extend(["--hide-monitors", ",".join(map(str, args.hide_monitors))])
     if args.show_monitors:
@@ -592,12 +609,6 @@ Examples:
         type=_non_negative_int,
         default=10,
         help="Extra pixels below the bar used for overlap and leave detection (default: 10)",
-    )
-    parser.add_argument(
-        "--procname",
-        type=str,
-        default="waybar",
-        help="Process name to manage (default: waybar)",
     )
     parser.add_argument(
         "--hide-monitors",
