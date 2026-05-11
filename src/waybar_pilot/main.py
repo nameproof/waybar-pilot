@@ -3,6 +3,7 @@
 import argparse
 import atexit
 import faulthandler
+from importlib.metadata import PackageNotFoundError, version
 import logging
 import os
 from pathlib import Path
@@ -10,8 +11,10 @@ import shutil
 import signal
 import subprocess
 import sys
+import textwrap
 import threading
 import time
+import tomllib
 
 from .config import WAYBAR_PROC
 
@@ -20,6 +23,102 @@ DETACHED_WRAPPER_ENV = "WAYBAR_PILOT_DETACHED_WRAPPER"
 LOG_FORMAT = "%(asctime)s %(levelname)s: %(message)s"
 LOG_DATE_FORMAT = "%H:%M:%S"
 _CRASH_AIDS_INSTALLED = False
+
+
+def _get_version() -> str:
+    """Read package version from installed metadata or pyproject.toml."""
+    try:
+        return version("waybar-pilot")
+    except PackageNotFoundError:
+        pass
+
+    pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    try:
+        with pyproject_path.open("rb") as f:
+            data = tomllib.load(f)
+        return data["project"]["version"]
+    except (OSError, KeyError, tomllib.TOMLDecodeError):
+        return "unknown"
+
+
+def _format_option(spec: str, description: str, width: int = 27) -> str:
+    """Format one jq-style help option with hanging indentation."""
+    prefix = f"  {spec:<{width}}"
+    return textwrap.fill(
+        description,
+        width=80,
+        initial_indent=prefix,
+        subsequent_indent=" " * len(prefix),
+    )
+
+
+def _format_help() -> str:
+    """Return custom POSIX/GNU-style help text."""
+    options = [
+        ("-r, --restart", "Kill existing and restart cleanly"),
+        ("-s, --stop", "Kill existing and exit"),
+        ("-i, --interactive", "Run in foreground with log output"),
+        ("    --debug", "Enable debug logging"),
+        ("    --bar-height PX", "Waybar height in pixels (default: 26)"),
+        (
+            "    --overlap PX",
+            "Extra pixels below the bar used for overlap and leave detection "
+            "(default: 10)",
+        ),
+        (
+            "    --hide-monitors LIST",
+            "Comma-separated monitor selectors with autohide behavior "
+            '(monitor name like "DP-1" or monitor serial like "ABC123", '
+            "default: all monitors)",
+        ),
+        (
+            "    --show-monitors LIST",
+            "Comma-separated monitor selectors always visible (monitor name "
+            'like "HDMI-A-1" or serial like "XYZ987", default: none)',
+        ),
+        (
+            "    --initial-state STATE",
+            "Initial state: 0=hidden, 1=visible (default: 0)",
+        ),
+        (
+            "    --wait-for-network SEC",
+            "Seconds to wait for network before starting waybar, "
+            "0 to disable (default: 5)",
+        ),
+        ("-h, --help", "Show this help message and exit"),
+        ("-v, --version", "Show version information and exit"),
+    ]
+
+    lines = [
+        "waybar-pilot - per-monitor waybar manager with hide and show functionality",
+        "               based on cursor position",
+        "",
+        "Pass monitor selectors to --hide-monitors and --show-monitors as comma-separated",
+        'arguments. Use "name" or "serial" from:',
+        "  $ hyprctl -j monitors",
+        "",
+        "USAGE:",
+        "  waybar-pilot [options]",
+        "  waybar-pilot -r [options]",
+        "  waybar-pilot -s",
+        "  waybar-pilot --hide-monitors LIST --show-monitors LIST [options]",
+        "",
+        "OPTIONS:",
+    ]
+
+    wrapped_specs = {
+        "    --overlap PX",
+        "    --hide-monitors LIST",
+        "    --show-monitors LIST",
+        "    --initial-state STATE",
+        "    --wait-for-network SEC",
+    }
+    for spec, description in options:
+        lines.append(_format_option(spec, description))
+        if spec in wrapped_specs:
+            lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
 
 
 class _Spinner:
@@ -559,21 +658,7 @@ def main() -> int:
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    parser = argparse.ArgumentParser(
-        description="waybar-pilot - automatically hide/show waybar based on cursor position",
-        epilog="""
-Examples:
-  waybar-pilot                             Start with defaults
-  waybar-pilot -i                          Run in foreground with logs
-  waybar-pilot -s                          Stop existing waybar-pilot/waybar
-  waybar-pilot --bar-height 30             Custom bar height
-  waybar-pilot --hide-monitors DP-1,eDP-1  Autohide on selected monitors
-  waybar-pilot -r                          Restart cleanly
-  waybar-pilot -r -i                       Restart with logs
-  waybar-pilot -h                          Show help
-        """,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+    parser = argparse.ArgumentParser(add_help=False)
 
     # Action flags (short forms)
     action_group = parser.add_mutually_exclusive_group()
@@ -589,6 +674,8 @@ Examples:
         action="store_true",
         help="Kill any existing waybar-pilot and waybar processes, then exit",
     )
+    parser.add_argument("-h", "--help", action="store_true")
+    parser.add_argument("-v", "--version", action="store_true")
     parser.add_argument(
         "-i",
         "--interactive",
@@ -642,6 +729,13 @@ Examples:
     )
 
     args = parser.parse_args()
+    if args.help:
+        print(_format_help(), end="")
+        return 0
+    if args.version:
+        print(f"waybar-pilot {_get_version()}")
+        return 0
+
     detached_child = os.environ.get(DETACHED_CHILD_ENV) == "1"
     detached_wrapper = os.environ.get(DETACHED_WRAPPER_ENV) == "1"
 

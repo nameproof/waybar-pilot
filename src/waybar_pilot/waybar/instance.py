@@ -88,7 +88,12 @@ class WaybarInstance:
             Path to the temporary config file
         """
         # Read base config
-        config_dir = Path.home() / ".config" / "waybar"
+        config_home = os.environ.get("XDG_CONFIG_HOME")
+        config_dir = (
+            Path(config_home) / "waybar"
+            if config_home
+            else Path.home() / ".config" / "waybar"
+        )
         base_config = config_dir / "config.jsonc"
 
         if not base_config.exists():
