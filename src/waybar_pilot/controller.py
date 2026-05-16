@@ -443,18 +443,28 @@ class AutohideController:
             instance.state = WaybarState.VISIBLE
             monitor_state.current_state = WaybarState.VISIBLE
         else:
-            # Need to hide it - but wait for grace period
-            # Schedule a delayed hide to give waybar time to fully initialize
-            instance.state = WaybarState.HIDDEN  # Mark as should-be-hidden
-            monitor_state.current_state = WaybarState.HIDDEN
+            # Waybar starts visible. Keep state matching reality until delayed
+            # startup hide actually toggles it, otherwise early cursor events can
+            # invert actual and tracked visibility.
+            instance.state = WaybarState.VISIBLE
+            monitor_state.current_state = WaybarState.VISIBLE
 
             # Schedule the actual toggle after grace period
             def delayed_hide():
                 time.sleep(self.STARTUP_GRACE_PERIOD)
                 try:
-                    if self._waybar_manager.get_instance(monitor_id):
-                        instance.toggle()
+                    current = self._waybar_manager.get_instance(monitor_id)
+                    if current is not instance or not instance.is_alive():
+                        return
+                    if self._cursor_in_bar_zone(monitor_id):
+                        log.info(
+                            f"Monitor {monitor_id}: startup hide skipped, cursor in bar zone"
+                        )
+                        return
+                    if instance.state == WaybarState.VISIBLE:
+                        instance.hide()
                         self._waybar_manager.set_state(monitor_id, WaybarState.HIDDEN)
+                        monitor_state.current_state = WaybarState.HIDDEN
                         log.info(
                             f"Monitor {monitor_id}: hidden after startup grace period"
                         )
@@ -464,6 +474,25 @@ class AutohideController:
             # Run in background thread
             timer = threading.Thread(target=delayed_hide, daemon=True)
             timer.start()
+
+    def _cursor_in_bar_zone(self, monitor_id: int) -> bool:
+        """Check whether the real cursor is inside the bar detection zone."""
+        try:
+            cursor_pos = self._hyprland.get_cursor_position()
+            cursor_monitor = self._state_engine.get_cursor_monitor(
+                cursor_pos,
+                self._monitors,
+            )
+            if cursor_monitor != monitor_id:
+                return False
+            monitor = next((m for m in self._monitors if m.id == monitor_id), None)
+            if not monitor:
+                return False
+            relative_y = cursor_pos.y - monitor.y
+            return 0 <= relative_y <= self._config.total_detection_height
+        except Exception as e:
+            log.debug(f"Error checking startup cursor position: {e}")
+            return False
 
     def _refresh_state(self) -> None:
         """Refresh state from Hyprland.
@@ -1065,6 +1094,10 @@ class AutohideController:
                         log.debug(
                             f"Monitor {monitor_id}: skipping toggle during startup grace period ({elapsed:.1f}s)"
                         )
+                        self._state_engine.get_or_create_monitor_state(
+                            monitor_id
+                        ).current_state = old_state
+                        self._waybar_manager.set_state(monitor_id, old_state)
                         continue
                     else:
                         # Grace period passed, clean up the entry
