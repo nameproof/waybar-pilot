@@ -83,7 +83,7 @@ def _format_help() -> str:
         (
             "    --wait-for-network SEC",
             "Seconds to wait for network before starting waybar, "
-            "0 to disable (default: 5)",
+            "0 to disable (default: 10)",
         ),
         ("-h, --help", "Show this help message and exit"),
         ("-v, --version", "Show version information and exit"),
@@ -443,7 +443,7 @@ def _build_module_command(args) -> list[str]:
         cmd.extend(["--show-monitors", ",".join(map(str, args.show_monitors))])
     if args.initial_state != "0":
         cmd.extend(["--initial-state", args.initial_state])
-    if getattr(args, "wait_for_network", 5) != 5:
+    if getattr(args, "wait_for_network", 10) != 10:
         cmd.extend(["--wait-for-network", str(args.wait_for_network)])
     if args.debug:
         cmd.append("--debug")
@@ -724,8 +724,8 @@ def main() -> int:
     parser.add_argument(
         "--wait-for-network",
         type=_non_negative_int,
-        default=5,
-        help="Seconds to wait for network before starting waybar (default: 5)",
+        default=10,
+        help="Seconds to wait for network before starting waybar (default: 10)",
     )
 
     args = parser.parse_args()

@@ -275,14 +275,24 @@ class AutohideController:
             return False
 
     def _network_available(self) -> bool:
-        """Check if network is reachable."""
-        import socket
+        """Check if network + DNS is reachable.
+
+        Uses HTTPS probe (not raw IP) so readiness for weather/update modules
+        is accurately detected (verifies DNS + TLS + HTTP).
+        """
+        import urllib.request
+        import urllib.error
 
         try:
-            with socket.create_connection(("1.1.1.1", 53), timeout=1):
-                pass
-            return True
-        except OSError:
+            req = urllib.request.Request(
+                "https://one.one.one.one",
+                headers={"User-Agent": "waybar-pilot/0.2 network-probe"},
+            )
+            with urllib.request.urlopen(req, timeout=1.5):
+                return True
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError, TimeoutError):
+            return False
+        except Exception:
             return False
 
     def _wait_for_startup_conditions(self) -> None:
@@ -299,6 +309,12 @@ class AutohideController:
         network_ready = network_wait <= 0
         external_wait_done = False
         start = time.time()
+
+        log.debug(
+            "Waiting for startup conditions (network<=%ds external<=%.1fs)",
+            network_wait,
+            external_wait,
+        )
 
         while time.time() < deadline:
             if not network_ready:
@@ -321,7 +337,8 @@ class AutohideController:
             time.sleep(0.2)
 
         log.warning(
-            "Startup timeout: network=%s external=%s",
+            "Startup timeout after %.1fs: network=%s external=%s",
+            time.time() - start,
             network_ready,
             external_wait_done,
         )

@@ -170,7 +170,7 @@ class Config:
         initial_state = WaybarState(args.initial_state)
 
         # Network wait
-        wait_for_network = getattr(args, "wait_for_network", 5)
+        wait_for_network = getattr(args, "wait_for_network", 10)
 
         return cls(
             bar_height=bar_height,
