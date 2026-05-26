@@ -1,6 +1,7 @@
 """Waybar instance management per monitor."""
 
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -11,6 +12,8 @@ from pathlib import Path
 from typing import Optional
 
 from ..config import Config, WAYBAR_PROC, WaybarState
+
+log = logging.getLogger("waybar-pilot")
 
 
 @dataclass
@@ -126,17 +129,42 @@ class WaybarInstance:
 
         return Path(path)
 
-    def _start_process(self) -> None:
-        """Start the waybar process."""
-        import subprocess
+    def _resolve_style_path(self) -> Optional[Path]:
+        """Resolve the real waybar style.css using the same XDG logic as the config."""
+        config_home = os.environ.get("XDG_CONFIG_HOME")
+        config_dir = (
+            Path(config_home) / "waybar"
+            if config_home
+            else Path.home() / ".config" / "waybar"
+        )
 
+        for name in ("style.css", "style.scss"):
+            candidate = config_dir / name
+            if candidate.exists():
+                return candidate
+
+        return None
+
+    def _start_process(self) -> None:
+        """Start the waybar process with explicit config + style."""
         self._config_path = self._create_config()
+        style_path = self._resolve_style_path()
 
         env = os.environ.copy()
         env["WAYBAR_MONITOR_ID"] = str(self.monitor_id)
 
+        cmd = [WAYBAR_PROC, "-c", str(self._config_path)]
+        if style_path:
+            cmd.extend(["-s", str(style_path)])
+            log.debug(f"Monitor {self.monitor_name}: starting with style {style_path}")
+        else:
+            log.warning(
+                "Monitor %s: no style.css found, waybar may use fallback (black bar)",
+                self.monitor_name,
+            )
+
         self._process = subprocess.Popen(
-            [WAYBAR_PROC, "-c", str(self._config_path)],
+            cmd,
             env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
