@@ -18,8 +18,9 @@ import tomllib
 
 from .config import WAYBAR_PROC
 
-DETACHED_CHILD_ENV = "WAYBAR_PILOT_DETACHED_CHILD"
-DETACHED_WRAPPER_ENV = "WAYBAR_PILOT_DETACHED_WRAPPER"
+# Marker set on the real background child so it runs the app directly
+# instead of trying to daemonize again.
+BACKGROUND_ENV = "WAYBAR_PILOT_BACKGROUND"
 LOG_FORMAT = "%(asctime)s %(levelname)s: %(message)s"
 LOG_DATE_FORMAT = "%H:%M:%S"
 _CRASH_AIDS_INSTALLED = False
@@ -177,7 +178,7 @@ def _get_runtime_dir() -> Path:
 
 
 def _get_runtime_log_path() -> Path:
-    """Return the log path for detached/background runs."""
+    """Return the log path for background runs."""
     return _get_runtime_dir() / "waybar-pilot.log"
 
 
@@ -284,7 +285,7 @@ def _kill_by_pid_file() -> bool:
 
 
 def _configure_logging(level: int = logging.INFO) -> logging.Logger:
-    """Configure timestamped logging for both interactive and detached runs."""
+    """Configure timestamped logging for interactive and background runs."""
     root_logger = logging.getLogger()
 
     if not root_logger.handlers:
@@ -466,55 +467,11 @@ def stop_and_exit(args) -> int:
     return 0
 
 
-def _build_detached_command(args) -> list[str]:
-    """Build detached wrapper command."""
-    return _build_module_command(args)
-
-
-def _run_detached_wrapper(args) -> int:
-    """Run detached wrapper that supervises actual app process."""
-    log_level = logging.DEBUG if args.debug else logging.INFO
-    log = _configure_logging(log_level)
-    _install_crash_aids()
-
-    child_env = os.environ.copy()
-    child_env.pop(DETACHED_WRAPPER_ENV, None)
-    child_env[DETACHED_CHILD_ENV] = "1"
-    child_cmd = _build_module_command(args)
-
-    log.info(
-        "Detached wrapper starting child: pid=%s ppid=%s session=%s",
-        os.getpid(),
-        os.getppid(),
-        os.getsid(0),
-    )
-    log.debug("Detached child command: %s", child_cmd)
-
-    child = subprocess.Popen(child_cmd, env=child_env)
-    return_code = child.wait()
-
-    if return_code < 0:
-        try:
-            signal_name = signal.Signals(-return_code).name
-        except ValueError:
-            signal_name = f"SIG{-return_code}"
-        log.critical(
-            "Detached child exited from signal %s (%s)",
-            signal_name,
-            -return_code,
-        )
-    else:
-        log.warning("Detached child exited with code %s", return_code)
-
-    return return_code
-
-
 def _run_detached(args) -> int:
-    """Launch waybar-pilot in background and return immediately."""
-    cmd = _build_detached_command(args)
+    """Launch waybar-pilot in background (returns immediately)."""
+    cmd = _build_module_command(args)
     env = os.environ.copy()
-    env.pop(DETACHED_CHILD_ENV, None)
-    env[DETACHED_WRAPPER_ENV] = "1"
+    env[BACKGROUND_ENV] = "1"
     log_path = _get_runtime_log_path()
 
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -535,10 +492,10 @@ def restart_and_run(args, interactive: bool = False) -> int:
 
     Args:
         args: Parsed command line arguments
-        interactive: If False, detach to background. If True, stay in foreground.
+        interactive: If False, launch in background. If True, stay in foreground.
 
     Returns:
-        Exit code from main() (or 0 if detached to background)
+        Exit code from main() (or 0 if launched to background)
     """
     spinner = _Spinner("Restarting waybar-pilot...")
     spinner.start()
@@ -736,16 +693,13 @@ def main() -> int:
         print(f"waybar-pilot {_get_version()}")
         return 0
 
-    detached_child = os.environ.get(DETACHED_CHILD_ENV) == "1"
-    detached_wrapper = os.environ.get(DETACHED_WRAPPER_ENV) == "1"
+    is_background = os.environ.get(BACKGROUND_ENV) == "1"
 
     if args.stop:
         return stop_and_exit(args)
-    if detached_wrapper:
-        return _run_detached_wrapper(args)
     if args.restart:
         return restart_and_run(args, interactive=args.interactive)
-    if args.interactive or detached_child:
+    if args.interactive or is_background:
         return _run_main(args)
     _run_detached(args)
     print(f"Started waybar-pilot (log: {_get_runtime_log_path()})")
