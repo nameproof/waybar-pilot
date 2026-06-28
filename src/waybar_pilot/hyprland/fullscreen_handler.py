@@ -17,8 +17,7 @@ class FullscreenState:
     monitor_id: int
     monitor_name: str
     is_fullscreen: bool = False
-    fullscreen_client: Optional[str] = None  # client address
-    fullscreen_workspace_id: Optional[int] = None  # workspace with fullscreen
+    fullscreen_workspaces: Set[int] = field(default_factory=set)
     last_change_time: float = field(default_factory=time.time)
 
 
@@ -57,56 +56,63 @@ class FullscreenHandler:
             )
 
     def update_from_clients(
-        self, clients: List[Client], monitors: List[Monitor]
+        self,
+        clients: List[Client],
+        monitors: List[Monitor],
     ) -> None:
         """Update fullscreen state from current client list.
 
-        This should be called when processing window-related events to
-        ensure fullscreen state is accurate.
+        Records every workspace that has a fullscreen window, keyed by
+        monitor. The ``mapped`` field is intentionally NOT used as a
+        filter: during workspace switches the compositor flips ``mapped``
+        asynchronously, and a fullscreen window being mapped in on the
+        newly active workspace may briefly report ``mapped: false``.
+        Filtering on it would drop the workspace from our state for one
+        tick, causing ``is_fullscreen`` to return False and the bar to
+        flash. The ``hidden`` filter is kept because ``hidden: true`` is
+        an explicit user action, not a transient transition.
+
+        The active-workspace mapping is NOT used here either. It comes
+        from a separate ``hyprctl -j monitors`` call that can be out of
+        sync with ``hyprctl -j clients``. By recording all fullscreen
+        workspaces and deferring the active-workspace check to
+        ``is_fullscreen``, we decouple the two independently-sourced
+        facts and eliminate the race.
 
         Args:
             clients: Current list of window clients
             monitors: Current list of monitors
         """
-        # Build set of monitors with fullscreen clients and their workspaces
-        fullscreen_by_monitor: Dict[
-            int, tuple
-        ] = {}  # monitor_id -> (client_address, workspace_id)
+        # Build monitor_id -> set of fullscreen workspace IDs
+        fullscreen_workspaces_by_monitor: Dict[int, Set[int]] = {}
 
         for client in clients:
-            if client.fullscreen and client.mapped and not client.hidden:
-                # Client is fullscreen on this monitor
-                fullscreen_by_monitor[client.monitor_id] = (
-                    client.address,
-                    client.workspace_id,
-                )
+            if not client.fullscreen or client.hidden:
+                continue
+
+            fullscreen_workspaces_by_monitor.setdefault(client.monitor_id, set()).add(
+                client.workspace_id
+            )
 
         # Update state for all known monitors
         for monitor in monitors:
             state = self.get_or_create_state(monitor.id, monitor.name)
 
+            new_workspaces = fullscreen_workspaces_by_monitor.get(monitor.id, set())
             was_fullscreen = state.is_fullscreen
-            is_fullscreen = monitor.id in fullscreen_by_monitor
+            is_fullscreen = bool(new_workspaces)
 
-            if is_fullscreen != was_fullscreen:
-                workspace_id = None
-                if is_fullscreen:
-                    client_addr, workspace_id = fullscreen_by_monitor[monitor.id]
-                    state.fullscreen_client = client_addr
-                    state.fullscreen_workspace_id = workspace_id
-                else:
-                    workspace_id = state.fullscreen_workspace_id
-                    state.fullscreen_client = None
-                    state.fullscreen_workspace_id = None
+            if new_workspaces != state.fullscreen_workspaces:
+                state.fullscreen_workspaces = new_workspaces
                 state.is_fullscreen = is_fullscreen
                 state.last_change_time = time.time()
                 log.info(
-                    "Monitor %s (%s): fullscreen %s -> %s (workspace=%s)",
+                    "Monitor %s (%s): fullscreen %s -> %s (workspaces=%s)",
                     monitor.id,
                     monitor.name,
                     was_fullscreen,
                     is_fullscreen,
-                    workspace_id,
+                    sorted(new_workspaces),
                 )
 
     def is_fullscreen(
@@ -114,9 +120,10 @@ class FullscreenHandler:
     ) -> bool:
         """Check if a monitor is currently in fullscreen mode.
 
-        If active_workspace_id is provided, only returns True if the fullscreen
-        window is on the active workspace. This prevents disabling waybar when
-        switching to a different workspace on the same monitor.
+        If active_workspace_id is provided, only returns True if a
+        fullscreen window exists on that workspace. This prevents
+        disabling waybar when switching to a different workspace on the
+        same monitor that has no fullscreen window.
 
         Args:
             monitor_id: Monitor ID to check
@@ -133,8 +140,8 @@ class FullscreenHandler:
         if active_workspace_id is None:
             return state.is_fullscreen
 
-        # Only consider it fullscreen if it's on the active workspace
-        return state.fullscreen_workspace_id == active_workspace_id
+        # Only consider it fullscreen if the active workspace has one
+        return active_workspace_id in state.fullscreen_workspaces
 
     def get_fullscreen_monitors(self) -> Set[int]:
         """Get set of monitor IDs currently in fullscreen mode."""

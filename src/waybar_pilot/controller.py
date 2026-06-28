@@ -1009,6 +1009,10 @@ class AutohideController:
                 # Only hide sensor if fullscreen is on the active workspace
                 if self._fullscreen_handler.is_fullscreen(monitor.id, active_workspace):
                     self._cursor_manager.hide_sensor(monitor.name)
+                    # Drop stale cursor state so that when fullscreen exits,
+                    # we don't briefly treat the bar as revealed and flash it.
+                    self._cursor_in_sensor_zone.pop(monitor.id, None)
+                    self._exit_checks.pop(monitor.id, None)
                 else:
                     self._cursor_manager.show_sensor(monitor.name)
 
