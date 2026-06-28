@@ -52,8 +52,17 @@ class WaybarInstance:
             ch = text[i]
 
             # Track string boundaries (respecting escapes)
-            if ch == '"' and (i == 0 or text[i - 1] != "\\"):
-                in_string = not in_string
+            # A quote is escaped only if preceded by an odd number of
+            # backslashes; checking just the previous char fails on
+            # "\\" (escaped backslash) followed by a closing quote.
+            if ch == '"':
+                backslash_count = 0
+                j = i - 1
+                while j >= 0 and text[j] == "\\":
+                    backslash_count += 1
+                    j -= 1
+                if backslash_count % 2 == 0:
+                    in_string = not in_string
                 result.append(ch)
                 i += 1
                 continue
