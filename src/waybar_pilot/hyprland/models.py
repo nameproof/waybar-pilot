@@ -46,8 +46,12 @@ class Monitor:
         return self.y + self.height
 
     def contains_point(self, x: int, y: int) -> bool:
-        """Check if a point is within this monitor's bounds."""
-        return self.left <= x <= self.right and self.top <= y <= self.bottom
+        """Check if a point is within this monitor's bounds.
+
+        Uses half-open ranges so a point on the shared edge between two
+        adjacent monitors matches exactly one of them.
+        """
+        return self.left <= x < self.right and self.top <= y < self.bottom
 
     @classmethod
     def from_dict(cls, data: dict) -> "Monitor":

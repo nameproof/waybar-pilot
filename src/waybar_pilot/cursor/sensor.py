@@ -106,10 +106,6 @@ class CursorSensor(Gtk.Window):
 
     def _setup_appearance(self) -> None:
         """Make window transparent and input-only."""
-        import logging
-
-        log = logging.getLogger("waybar-pilot")
-
         # Set size - full width, sensor height
         log.debug(f"Setting sensor size: {self._monitor_width}x{self._sensor_height}")
         self.set_default_size(self._monitor_width, self._sensor_height)
@@ -248,10 +244,6 @@ class CursorSensor(Gtk.Window):
 
     def show_sensor(self) -> None:
         """Show and activate the sensor."""
-        import logging
-
-        log = logging.getLogger("waybar-pilot")
-
         if not self._is_active:
             log.debug(f"Showing sensor for {self._monitor_name}")
             self.show_all()
@@ -261,9 +253,6 @@ class CursorSensor(Gtk.Window):
 
     def _log_window_size(self) -> bool:
         """Log actual window size (called via GLib.timeout_add)."""
-        import logging
-
-        log = logging.getLogger("waybar-pilot")
         allocation = self.get_allocation()
         log.debug(
             f"Sensor window {self._monitor_name} actual size: {allocation.width}x{allocation.height}"

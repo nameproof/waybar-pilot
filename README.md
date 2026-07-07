@@ -119,6 +119,7 @@ exec-once = waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
 | Flag | Description |
 |------|-------------|
 | `-h, --help` | Show help message and exit |
+| `-v, --version` | Show version information and exit |
 | `-s, --stop` | Kill existing `waybar-pilot` and managed waybar processes, then exit |
 | `-r, --restart` | Kill existing and restart cleanly |
 | `-i, --interactive` | Run in foreground with logs (default is background) |

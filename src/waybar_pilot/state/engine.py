@@ -99,7 +99,7 @@ class StateEngine:
         This is the main decision function implementing the visibility logic:
         1. Fullscreen monitors: never visible
         2. Always-show monitors: always visible
-        3. Autohide monitors: visible if cursor in sensor zone or no windows overlapping
+        3. Autohide monitors: visible only while the cursor is in the sensor zone
 
         Args:
             monitor_id: Monitor to check

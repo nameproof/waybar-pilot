@@ -2,6 +2,7 @@
 
 import socket
 import threading
+import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -130,7 +131,7 @@ class Socket2Listener:
         return HyprlandEvent(
             event_type=event_type,
             raw_data=line,
-            timestamp=__import__("time").time(),
+            timestamp=time.time(),
         )
 
     def _handle_monitor_added(self, line: str) -> None:
@@ -177,8 +178,6 @@ class Socket2Listener:
 
     def _listen_loop(self) -> None:
         """Main listening loop - runs in background thread."""
-        import time
-
         while self._running:
             sock = None
             try:

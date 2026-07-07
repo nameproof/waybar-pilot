@@ -1,5 +1,6 @@
 """Cursor sensor manager for handling multiple monitor sensors."""
 
+import logging
 from queue import Queue
 from typing import Dict, List, Optional
 
@@ -12,6 +13,8 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 
 from gi.repository import Gtk, Gdk  # type: ignore  # noqa: E402
+
+log = logging.getLogger("waybar-pilot")
 
 
 class CursorManager:
@@ -70,9 +73,6 @@ class CursorManager:
         self._gdk_monitor_map.clear()
         n_gdk_monitors = self._gtk_display.get_n_monitors()
 
-        import logging
-
-        log = logging.getLogger("waybar-pilot")
         log.info(
             f"Building monitor mapping: {len(hyprland_monitors)} Hyprland monitors, {n_gdk_monitors} GDK monitors"
         )
@@ -151,10 +151,6 @@ class CursorManager:
         Returns:
             True if sensor created successfully, False otherwise
         """
-        import logging
-
-        log = logging.getLogger("waybar-pilot")
-
         if monitor.name in self._sensors:
             return True  # Already exists
 
@@ -260,10 +256,6 @@ class CursorManager:
             monitors: Current list of monitors from Hyprland
             autohide_monitor_ids: List of monitor IDs that should have sensors
         """
-        import logging
-
-        log = logging.getLogger("waybar-pilot")
-
         # Rebuild GDK mapping
         self._build_monitor_mapping(monitors)
         self._monitor_id_map = {m.name: m.id for m in monitors}

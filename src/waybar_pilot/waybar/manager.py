@@ -118,9 +118,7 @@ class WaybarManager:
         log.info(f"Starting waybar for monitor {monitor.name} (ID {monitor.id})")
 
         # Kill any external waybars before starting ours
-        killed = self.kill_all_external_waybars()
-        if killed > 0:
-            log.info(f"Killed {killed} external waybar(s)")
+        self.kill_all_external_waybars()
 
         instance = WaybarInstance(
             monitor_id=monitor.id,
