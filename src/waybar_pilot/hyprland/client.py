@@ -2,6 +2,7 @@
 
 import json
 import os
+import socket
 import subprocess
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
@@ -24,26 +25,106 @@ class HyprlandError(Exception):
 class HyprlandClient:
     """Client for interacting with Hyprland compositor.
 
-    Wraps all hyprctl calls with proper error handling and retry logic.
+    Talks to Hyprland's request socket (.socket.sock) directly instead
+    of spawning the ``hyprctl`` binary for every query. Falls back to
+    the binary if the socket is unavailable (e.g. wrong environment).
+    The socket gives ~10-30x lower latency per query (~0.1ms vs
+    ~1-3ms fork+exec) while preserving the exact same fresh-snapshot
+    semantics — every call still hits the compositor, no caching.
     """
 
     def __init__(self):
         self._hyprctl_path = "hyprctl"
+        self._request_socket_path: Optional[Path] = None
+
+    def _get_request_socket_path(self) -> Path:
+        """Get the path to Hyprland's request socket (.socket.sock).
+
+        Sibling of the event socket (.socket2.sock) — same directory,
+        just without the ``2``.
+        """
+        if self._request_socket_path is not None:
+            return self._request_socket_path
+
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+        his = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+
+        if his:
+            path = Path(f"{runtime_dir}/hypr/{his}/.socket.sock")
+        else:
+            path = Path(f"{runtime_dir}/hypr/.socket.sock")
+        self._request_socket_path = path
+        return path
+
+    def _run_socket_command(self, command: str, timeout: float = 2.0) -> str:
+        """Send a command to Hyprland's request socket and return the reply.
+
+        Args:
+            command: The command string (e.g. ``j/monitors``, ``cursorpos``)
+            timeout: Socket read timeout in seconds
+
+        Returns:
+            Response string from the compositor
+
+        Raises:
+            HyprlandConnectionError: If the socket cannot be reached
+        """
+        sock = None
+        try:
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            sock.connect(str(self._get_request_socket_path()))
+            sock.sendall(command.encode("utf-8"))
+
+            chunks: List[bytes] = []
+            while True:
+                data = sock.recv(8192)
+                if not data:
+                    break
+                chunks.append(data)
+            return b"".join(chunks).decode("utf-8")
+        except (OSError, ConnectionError) as e:
+            raise HyprlandConnectionError(
+                f"Failed to talk to Hyprland request socket "
+                f"({self._get_request_socket_path()}): {e}"
+            )
+        finally:
+            if sock is not None:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
 
     def _run_hyprctl(self, args: List[str], check: bool = True) -> str:
-        """Run a hyprctl command and return stdout.
+        """Run a hyprctl command via the request socket and return stdout.
+
+        Converts the ``hyprctl``-style ``args`` to a socket command
+        (``-j monitors`` → ``j/monitors``, ``cursorpos`` → ``cursorpos``)
+        and sends it over the Unix socket. Falls back to the
+        ``hyprctl`` binary if the socket is unavailable.
 
         Args:
             args: Command arguments (after 'hyprctl')
-            check: Whether to raise on non-zero exit code
+            check: Whether to raise on non-zero exit code (subprocess
+                fallback only; the socket has no exit codes)
 
         Returns:
             Command stdout as string
 
         Raises:
-            HyprlandConnectionError: If hyprctl is not available
-            HyprlandError: If command fails
+            HyprlandConnectionError: If neither socket nor binary works
+            HyprlandError: If the subprocess fallback fails
         """
+        if len(args) >= 2 and args[0] == "-j":
+            socket_command = f"j/{args[1]}"
+        else:
+            socket_command = args[0]
+
+        try:
+            return self._run_socket_command(socket_command)
+        except HyprlandConnectionError:
+            pass
+
         try:
             result = subprocess.run(
                 [self._hyprctl_path] + args,

@@ -115,6 +115,7 @@ class AutohideController:
         )
         self._loop_tick = 0
         self._cursor_query_reasons_this_tick: List[str] = []
+        self._cursor_this_tick: Optional[CursorPosition] = None
         self._visible_threshold_polling_ids: Set[int] = set()
 
         # Startup grace period tracking
@@ -537,10 +538,6 @@ class AutohideController:
                     self._handle_monitor_change(event)
                     needs_refresh = True
                     needs_visibility_update = True
-                elif event.event_type == EventType.WORKSPACE_CREATED:
-                    needs_refresh = True
-                elif event.event_type == EventType.WORKSPACE_DESTROYED:
-                    needs_refresh = True
                 elif event.event_type == EventType.ACTIVE_WORKSPACE:
                     needs_refresh = True
                     needs_visibility_update = (
@@ -653,13 +650,18 @@ class AutohideController:
         return True
 
     def _get_cursor_position_logged(self, reason: str) -> CursorPosition:
-        """Get cursor position and log duplicate per-tick queries.
+        """Get cursor position, cached per main-loop tick.
 
-        This is instrumentation to validate whether a per-tick cache would
-        actually buy us anything before we add more state.
+        The first caller each tick pays for the ``hyprctl cursorpos``
+        query; subsequent callers in the same tick read the cached
+        value. The cache is cleared at the top of each loop iteration.
         """
+        if self._cursor_this_tick is not None:
+            self._cursor_query_reasons_this_tick.append(f"{reason} (cached)")
+            return self._cursor_this_tick
         self._cursor_query_reasons_this_tick.append(reason)
-        return self._hyprland.get_cursor_position()
+        self._cursor_this_tick = self._hyprland.get_cursor_position()
+        return self._cursor_this_tick
 
     def _finish_loop_tick(self) -> None:
         """Emit a log if this loop tick queried cursor position multiple times."""
@@ -1158,6 +1160,7 @@ class AutohideController:
             while self._running:
                 self._loop_tick += 1
                 self._cursor_query_reasons_this_tick.clear()
+                self._cursor_this_tick = None
                 # Create sensors on first iteration if needed, or retry periodically
                 need_sensor_update = self._sensors_need_update
                 if not need_sensor_update and self._cursor_manager:
