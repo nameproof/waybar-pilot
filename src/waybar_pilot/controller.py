@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 import logging
 import signal
-import sys
 import time
 from queue import Empty
 from typing import Dict, List, Optional, Set
@@ -31,13 +30,6 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk  # type: ignore  # noqa: E402
 
-# Setup logging - unbuffered so output appears in log files immediately
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s: %(message)s",
-    datefmt="%H:%M:%S",
-    stream=sys.stderr,
-)
 log = logging.getLogger("waybar-pilot")
 
 
@@ -77,7 +69,6 @@ class AutohideController:
     MAIN_LOOP_INTERVAL = 0.05  # 50 ms between main loop iterations
     STARTUP_GRACE_PERIOD = 0.5  # Wait before first hide after waybar starts
     EXIT_GRACE_PERIOD = 0.1  # Initial delay after cursor leaves sensor
-    EXIT_EXTENDED_PERIOD = 2.0  # Extended delay while cursor is in bar area
     CURSOR_POLL_SOCKET_TIMEOUT = 0.2
     CURSOR_POLL_BACKOFF_INITIAL = 0.25
     CURSOR_POLL_BACKOFF_MAX = 2.0
@@ -177,7 +168,7 @@ class AutohideController:
             self._fullscreen_handler = FullscreenHandler()
 
             # Initialize waybar manager
-            self._waybar_manager = WaybarManager(self._config)
+            self._waybar_manager = WaybarManager()
 
             # Get initial state
             self._refresh_state()
@@ -212,7 +203,7 @@ class AutohideController:
             self._event_queue = EventBuffer()
             self._socket2_listener = Socket2Listener(
                 event_queue=self._event_queue,
-                hyprland_client=self._hyprland,
+                socket_path=self._hyprland.get_socket2_path(),
             )
             self._socket2_listener.start()
 
@@ -220,7 +211,6 @@ class AutohideController:
             try:
                 self._cursor_manager = CursorManager(
                     event_queue=self._event_queue,
-                    hyprland_client=self._hyprland,
                 )
                 # Sensors will be created on first main loop iteration
                 # to avoid blocking during initialization
@@ -325,20 +315,8 @@ class AutohideController:
         terminate_pids(find_named_pids(WAYBAR_PROC))
 
     def _get_managed_monitor_ids(self) -> List[int]:
-        """Get list of monitor IDs to manage.
-
-        If no monitors specified in config, use all available monitors with autohide.
-        If monitors are specified, use all monitors but treat unlisted ones as "show".
-        """
-        all_monitor_ids = [m.id for m in self._monitors]
-
-        # If no monitors specified in config, use all with autohide behavior
-        if not self._config.autohide_monitors and not self._config.show_monitors:
-            return all_monitor_ids
-
-        # Monitors are specified - return ALL monitors
-        # (unlisted ones will be treated as "show" by is_show_monitor())
-        return all_monitor_ids
+        """Return all monitor IDs; selectors only change visibility behavior."""
+        return [monitor.id for monitor in self._monitors]
 
     def _resolve_monitor_selection(self, strict: bool = False) -> None:
         """Resolve configured monitor selectors to current monitor IDs."""
@@ -498,7 +476,6 @@ class AutohideController:
         needs_refresh = False
         needs_visibility_update = False
         has_active_window_event = False
-        last_active_window_event = None
         last_monitor_event = None
         monitors_before_refresh = self._monitors
 
@@ -538,7 +515,6 @@ class AutohideController:
                     # Special handling for active window changes
                     if event.event_type == EventType.ACTIVE_WINDOW:
                         has_active_window_event = True
-                        last_active_window_event = event
 
         if needs_refresh:
             self._refresh_state()
@@ -546,10 +522,8 @@ class AutohideController:
         if last_monitor_event is not None:
             self._handle_monitor_change(last_monitor_event, monitors_before_refresh)
 
-        if last_active_window_event is not None:
-            focus_state_cleared = self._handle_active_window_focus_change(
-                last_active_window_event
-            )
+        if has_active_window_event:
+            focus_state_cleared = self._handle_active_window_focus_change()
             if focus_state_cleared:
                 needs_visibility_update = True
 
@@ -925,7 +899,7 @@ class AutohideController:
 
         return state_cleared
 
-    def _handle_active_window_focus_change(self, event) -> bool:
+    def _handle_active_window_focus_change(self) -> bool:
         """Handle active window change to detect cursor focus movement.
 
         When a new window takes focus (e.g., browser opening from URL click),
@@ -938,9 +912,6 @@ class AutohideController:
 
         This method queries the actual cursor position and clears stale sensor
         state if the cursor has moved away from the sensor zone or to another monitor.
-
-        Args:
-            event: The ACTIVE_WINDOW HyprlandEvent
 
         Returns:
             True if stale sensor state was cleared and visibility needs update

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from ..config import Config, WAYBAR_PROC, WaybarState
+from ..config import WAYBAR_PROC, WaybarState
 
 log = logging.getLogger("waybar-pilot")
 
@@ -25,7 +25,6 @@ class WaybarInstance:
 
     monitor_id: int
     monitor_name: str
-    config: Config
     _process: Optional[subprocess.Popen] = field(default=None, repr=False)
     _state: WaybarState = field(default=WaybarState.VISIBLE)
     _config_path: Optional[Path] = field(default=None, repr=False)

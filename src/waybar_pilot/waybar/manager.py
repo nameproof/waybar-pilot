@@ -3,7 +3,6 @@
 import logging
 from typing import Dict, List, Optional
 
-from ..config import Config
 from ..hyprland import Monitor
 from ..processes import find_named_pids, terminate_pids
 from .instance import WaybarInstance
@@ -21,13 +20,8 @@ class WaybarManager:
     - Process health monitoring
     """
 
-    def __init__(self, config: Config):
-        """Initialize the manager.
-
-        Args:
-            config: Application configuration
-        """
-        self._config = config
+    def __init__(self):
+        """Initialize the manager."""
         self._instances: Dict[int, WaybarInstance] = {}
 
     def has_external_waybars(self) -> bool:
@@ -85,8 +79,6 @@ class WaybarManager:
         instance = WaybarInstance(
             monitor_id=monitor.id,
             monitor_name=monitor.name,
-            config=self._config,
-            # initial_state will be set by controller based on monitor type
         )
         self._instances[monitor.id] = instance
         log.info(

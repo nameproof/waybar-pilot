@@ -31,16 +31,13 @@ class CursorManager:
     def __init__(
         self,
         event_queue: Queue,
-        hyprland_client,
     ):
         """Initialize cursor manager.
 
         Args:
             event_queue: Queue to push cursor events to
-            hyprland_client: HyprlandClient for querying monitor info
         """
         self._event_queue = event_queue
-        self._hyprland = hyprland_client
         self._sensors: Dict[str, CursorSensor] = {}  # monitor_name -> sensor
         self._gtk_display: Optional[Gdk.Display] = None
         self._gdk_monitor_map: Dict[

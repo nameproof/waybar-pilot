@@ -86,7 +86,7 @@ def _iter_owned_pids() -> Iterable[int]:
             yield pid
 
 
-def terminate_pids(pids: Iterable[int], grace: float = 0.5) -> set[int]:
+def terminate_pids(pids: Iterable[int], grace: float = 0.5) -> None:
     """Terminate PIDs gracefully, then kill processes that remain alive."""
     current_pid = os.getpid()
     remaining = {pid for pid in pids if pid > 0 and pid != current_pid}
@@ -112,5 +112,3 @@ def terminate_pids(pids: Iterable[int], grace: float = 0.5) -> set[int]:
             os.kill(pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             remaining.discard(pid)
-
-    return remaining
