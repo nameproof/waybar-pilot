@@ -119,7 +119,7 @@ exec-once = waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
 |------|-------------|
 | `-h, --help` | Show help message and exit |
 | `-v, --version` | Show version information and exit |
-| `-s, --stop` | Kill existing `waybar-pilot` and managed waybar processes, then exit |
+| `-s, --stop` | Kill existing `waybar-pilot` and all owned waybar processes, then exit |
 | `-r, --restart` | Kill existing and restart cleanly |
 | `-i, --interactive` | Run in foreground with logs (default is background) |
 | `--debug` | Enable debug logging |
@@ -132,14 +132,13 @@ exec-once = waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
 | `--hide-margin` | Extra cursor travel below the bar before hiding | `10` |
 | `--hide-monitors` | Comma-separated monitor selectors for autohide (`DP-1`, `ABC123`) | All monitors |
 | `--show-monitors` | Comma-separated monitor selectors to always show (disable autohide) | None |
-| `--initial-state` | Initial state for hide-monitors: `0`=hidden or `1`=visible | `0` |
 | `--wait-for-network` | Seconds to wait for network before starting waybar | `20` |
 
 
 ### Examples
 
 ```bash
-# Stop all running waybar-pilot and managed waybar processes
+# Stop all running waybar-pilot and owned waybar processes
 waybar-pilot -s
 
 # Auto-hide on DP-1, always show on eDP-1

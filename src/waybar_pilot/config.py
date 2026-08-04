@@ -51,9 +51,6 @@ class Config:
     autohide_monitors: List[str]
     show_monitors: List[str]
 
-    # Initial state
-    initial_state: WaybarState
-
     # Network wait
     wait_for_network: int
 
@@ -160,9 +157,6 @@ class Config:
         autohide_monitors = args.hide_monitors if args.hide_monitors else []
         show_monitors = args.show_monitors if args.show_monitors else []
 
-        # Initial state
-        initial_state = WaybarState(args.initial_state)
-
         # Network wait
         wait_for_network = getattr(args, "wait_for_network", 20)
 
@@ -171,16 +165,7 @@ class Config:
             hide_margin=hide_margin,
             autohide_monitors=autohide_monitors,
             show_monitors=show_monitors,
-            initial_state=initial_state,
             wait_for_network=wait_for_network,
-        )
-
-    def __str__(self) -> str:
-        """Human-readable configuration summary."""
-        return (
-            f"Config(bar_height={self.bar_height}, "
-            f"autohide_selectors={self.autohide_monitors}, "
-            f"show_selectors={self.show_monitors})"
         )
 
 

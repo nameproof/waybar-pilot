@@ -12,7 +12,6 @@ import signal
 import stat
 import subprocess
 import sys
-import textwrap
 import threading
 import time
 import tomllib
@@ -34,98 +33,20 @@ _CRASH_AIDS_INSTALLED = False
 
 
 def _get_version() -> str:
-    """Read package version from installed metadata or pyproject.toml."""
+    """Read the source-tree version, then fall back to installed metadata."""
+    pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    if pyproject_path.is_file():
+        try:
+            with pyproject_path.open("rb") as f:
+                data = tomllib.load(f)
+            return data["project"]["version"]
+        except (OSError, KeyError, tomllib.TOMLDecodeError):
+            pass
+
     try:
         return version("waybar-pilot")
     except PackageNotFoundError:
-        pass
-
-    pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
-    try:
-        with pyproject_path.open("rb") as f:
-            data = tomllib.load(f)
-        return data["project"]["version"]
-    except (OSError, KeyError, tomllib.TOMLDecodeError):
         return "unknown"
-
-
-def _format_option(spec: str, description: str, width: int = 27) -> str:
-    """Format one jq-style help option with hanging indentation."""
-    prefix = f"  {spec:<{width}}"
-    return textwrap.fill(
-        description,
-        width=80,
-        initial_indent=prefix,
-        subsequent_indent=" " * len(prefix),
-    )
-
-
-def _format_help() -> str:
-    """Return custom POSIX/GNU-style help text."""
-    options = [
-        ("-r, --restart", "Kill existing and restart cleanly"),
-        ("-s, --stop", "Kill existing and exit"),
-        ("-i, --interactive", "Run in foreground with log output"),
-        ("    --debug", "Enable debug logging"),
-        ("    --bar-height PX", "Waybar height in pixels (default: 26)"),
-        (
-            "    --hide-margin PX",
-            "Extra cursor travel below the bar before hiding (default: 10)",
-        ),
-        (
-            "    --hide-monitors LIST",
-            "Comma-separated monitor selectors with autohide behavior "
-            '(monitor name like "DP-1" or monitor serial like "ABC123", '
-            "default: all monitors)",
-        ),
-        (
-            "    --show-monitors LIST",
-            "Comma-separated monitor selectors always visible (monitor name "
-            'like "HDMI-A-1" or serial like "XYZ987", default: none)',
-        ),
-        (
-            "    --initial-state STATE",
-            "Initial state: 0=hidden, 1=visible (default: 0)",
-        ),
-        (
-            "    --wait-for-network SEC",
-            "Seconds to wait for network before starting waybar, "
-            "0 to disable (default: 20)",
-        ),
-        ("-h, --help", "Show this help message and exit"),
-        ("-v, --version", "Show version information and exit"),
-    ]
-
-    lines = [
-        "waybar-pilot - per-monitor waybar manager with hide and show functionality",
-        "               based on cursor position",
-        "",
-        "Pass monitor selectors to --hide-monitors and --show-monitors as comma-separated",
-        'arguments. Use "name" or "serial" from:',
-        "  $ hyprctl -j monitors",
-        "",
-        "USAGE:",
-        "  waybar-pilot [options]",
-        "  waybar-pilot -r [options]",
-        "  waybar-pilot -s",
-        "  waybar-pilot --hide-monitors LIST --show-monitors LIST [options]",
-        "",
-        "OPTIONS:",
-    ]
-
-    wrapped_specs = {
-        "    --hide-margin PX",
-        "    --hide-monitors LIST",
-        "    --show-monitors LIST",
-        "    --initial-state STATE",
-        "    --wait-for-network SEC",
-    }
-    for spec, description in options:
-        lines.append(_format_option(spec, description))
-        if spec in wrapped_specs:
-            lines.append("")
-
-    return "\n".join(lines).rstrip() + "\n"
 
 
 class _Spinner:
@@ -259,11 +180,6 @@ def _is_pid_alive(pid: int) -> bool:
         return False
 
 
-def _is_our_process(pid: int) -> bool:
-    """Check if PID belongs to a waybar-pilot process."""
-    return is_waybar_pilot_process(pid)
-
-
 def _write_pid_file() -> None:
     """Write current PID to the PID file."""
     file_fd = _open_runtime_file(
@@ -301,7 +217,7 @@ def _kill_by_pid_file() -> bool:
         _remove_pid_file()
         return False
 
-    if not _is_our_process(pid):
+    if not is_waybar_pilot_process(pid):
         _remove_pid_file()
         return False
 
@@ -444,12 +360,8 @@ def check_requirements() -> bool:
         return False
 
 
-def _kill_existing_processes(args) -> None:
-    """Kill existing waybar-pilot instances and managed bar processes.
-
-    Args:
-        args: Parsed command line arguments
-    """
+def _kill_existing_processes() -> None:
+    """Kill existing waybar-pilot instances and managed bar processes."""
     # Prefer PID file for clean shutdown
     _kill_by_pid_file()
 
@@ -472,8 +384,6 @@ def _build_module_command(args) -> list[str]:
         cmd.extend(["--hide-monitors", ",".join(map(str, args.hide_monitors))])
     if args.show_monitors:
         cmd.extend(["--show-monitors", ",".join(map(str, args.show_monitors))])
-    if args.initial_state != "0":
-        cmd.extend(["--initial-state", args.initial_state])
     if getattr(args, "wait_for_network", 20) != 20:
         cmd.extend(["--wait-for-network", str(args.wait_for_network)])
     if args.debug:
@@ -482,7 +392,7 @@ def _build_module_command(args) -> list[str]:
     return cmd
 
 
-def stop_and_exit(args) -> int:
+def stop_and_exit() -> int:
     """Kill any existing waybar-pilot and managed bar processes, then exit."""
     spinner = _Spinner("Stopping waybar-pilot...")
     spinner.start()
@@ -492,7 +402,7 @@ def stop_and_exit(args) -> int:
         return 0
 
     # Fallback to old behavior
-    _kill_existing_processes(args)
+    _kill_existing_processes()
     spinner.stop("Stopped.")
     return 0
 
@@ -530,19 +440,18 @@ def restart_and_run(args, interactive: bool = False) -> int:
     """
     spinner = _Spinner("Restarting waybar-pilot...")
     spinner.start()
-    _kill_existing_processes(args)
+    _kill_existing_processes()
 
     spinner.update("Starting waybar-pilot...")
     if interactive:
         spinner.stop("Started waybar-pilot.")
         print("Running in interactive mode (Ctrl+C to stop)")
         return _run_main(args)
-    else:
-        _run_detached(args)
-        time.sleep(0.5)
-        log_path = _get_runtime_log_path()
-        spinner.stop(f"Started waybar-pilot (log: {log_path})")
-        return 0
+    _run_detached(args)
+    time.sleep(0.5)
+    log_path = _get_runtime_log_path()
+    spinner.stop(f"Started waybar-pilot (log: {log_path})")
+    return 0
 
 
 def _parse_monitor_list(value):
@@ -579,13 +488,6 @@ def _non_negative_int(value):
         raise argparse.ArgumentTypeError(f"{value} is not a valid integer")
 
 
-def _initial_state(value):
-    """Validate initial state (0 or 1)."""
-    if value not in ("0", "1"):
-        raise argparse.ArgumentTypeError(f"{value} must be 0 or 1")
-    return value
-
-
 def _run_main(args) -> int:
     """Run the main application logic.
 
@@ -600,7 +502,7 @@ def _run_main(args) -> int:
     current_pid = os.getpid()
     existing_pid = _read_pid_file()
     if existing_pid is not None and existing_pid != current_pid:
-        if _is_pid_alive(existing_pid) and _is_our_process(existing_pid):
+        if _is_pid_alive(existing_pid) and is_waybar_pilot_process(existing_pid):
             log.info(
                 "Implicit restart: stopping existing instance (pid=%s)", existing_pid
             )
@@ -646,7 +548,16 @@ def main() -> int:
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    parser = argparse.ArgumentParser(add_help=False)
+    parser = argparse.ArgumentParser(
+        description=(
+            "Per-monitor Waybar manager with hide and show functionality based on "
+            "cursor position."
+        ),
+        epilog=(
+            "Monitor selectors accept the name or serial reported by "
+            "`hyprctl -j monitors`."
+        ),
+    )
 
     # Action flags (short forms)
     action_group = parser.add_mutually_exclusive_group()
@@ -662,8 +573,12 @@ def main() -> int:
         action="store_true",
         help="Kill any existing waybar-pilot and waybar processes, then exit",
     )
-    parser.add_argument("-h", "--help", action="store_true")
-    parser.add_argument("-v", "--version", action="store_true")
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"waybar-pilot {_get_version()}",
+    )
     parser.add_argument(
         "-i",
         "--interactive",
@@ -706,12 +621,6 @@ def main() -> int:
         ),
     )
     parser.add_argument(
-        "--initial-state",
-        type=_initial_state,
-        default="0",
-        help="Initial state: 0=hidden, 1=visible (default: 0)",
-    )
-    parser.add_argument(
         "--wait-for-network",
         type=_non_negative_int,
         default=20,
@@ -719,17 +628,10 @@ def main() -> int:
     )
 
     args = parser.parse_args()
-    if args.help:
-        print(_format_help(), end="")
-        return 0
-    if args.version:
-        print(f"waybar-pilot {_get_version()}")
-        return 0
-
     is_background = os.environ.get(BACKGROUND_ENV) == "1"
 
     if args.stop:
-        return stop_and_exit(args)
+        return stop_and_exit()
     if args.restart:
         return restart_and_run(args, interactive=args.interactive)
     if args.interactive or is_background:
