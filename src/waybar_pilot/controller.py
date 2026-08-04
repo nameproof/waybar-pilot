@@ -4,7 +4,6 @@ from dataclasses import dataclass
 import logging
 import signal
 import sys
-import threading
 import time
 from queue import Empty, Queue
 from typing import Dict, List, Optional, Set
@@ -46,6 +45,14 @@ class PendingExitCheck:
     """Scheduled hide recheck handled by the main loop."""
 
     next_check_at: float
+
+
+@dataclass
+class PendingStartupHide:
+    """Initial hide scheduled after a Waybar process starts."""
+
+    instance: WaybarInstance
+    hide_at: float
 
 
 class AutohideController:
@@ -118,7 +125,7 @@ class AutohideController:
         self._visible_threshold_polling_ids: Set[int] = set()
 
         # Startup grace period tracking
-        self._waybar_start_times: Dict[int, float] = {}  # monitor_id -> start time
+        self._startup_hides: Dict[int, PendingStartupHide] = {}
 
         # Flag for deferred sensor creation
         self._sensors_need_update = False
@@ -151,6 +158,7 @@ class AutohideController:
 
     def initialize(self) -> bool:
         """Initialize all components."""
+        initialized = False
         try:
             # Check Hyprland is running
             self._hyprland = HyprlandClient()
@@ -229,14 +237,15 @@ class AutohideController:
             log.info(f"Resolved show IDs: {sorted(self._resolved_selection.show_ids)}")
             log.info("Waybar autohide is running...")
 
+            initialized = True
             return True
 
         except Exception as e:
-            log.error(f"Error during initialization: {e}")
-            import traceback
-
-            traceback.print_exc()
+            log.exception("Error during initialization: %s", e)
             return False
+        finally:
+            if not initialized:
+                self.shutdown()
 
     def _network_available(self) -> bool:
         """Check if network + DNS is reachable.
@@ -370,9 +379,6 @@ class AutohideController:
 
     def _sync_initial_state(self, instance: WaybarInstance, monitor_id: int) -> None:
         """Sync waybar state based on current conditions."""
-        # Record startup time for grace period
-        self._waybar_start_times[monitor_id] = time.time()
-
         # Show monitors should ALWAYS be visible
         if self._is_show_monitor(monitor_id):
             # Ensure instance state is VISIBLE
@@ -410,31 +416,48 @@ class AutohideController:
             instance.state = WaybarState.VISIBLE
             monitor_state.current_state = WaybarState.VISIBLE
 
-            # Schedule the actual toggle after grace period
-            def delayed_hide():
-                time.sleep(self.STARTUP_GRACE_PERIOD)
-                try:
-                    current = self._waybar_manager.get_instance(monitor_id)
-                    if current is not instance or not instance.is_alive():
-                        return
-                    if self._cursor_in_bar_zone(monitor_id):
-                        log.info(
-                            f"Monitor {monitor_id}: startup hide skipped, cursor in bar zone"
-                        )
-                        return
-                    if instance.state == WaybarState.VISIBLE:
-                        instance.hide()
-                        self._waybar_manager.set_state(monitor_id, WaybarState.HIDDEN)
-                        monitor_state.current_state = WaybarState.HIDDEN
-                        log.info(
-                            f"Monitor {monitor_id}: hidden after startup grace period"
-                        )
-                except RuntimeError:
-                    pass  # Waybar may have died, _check_process_health will handle it
+            self._startup_hides[monitor_id] = PendingStartupHide(
+                instance=instance,
+                hide_at=time.monotonic() + self.STARTUP_GRACE_PERIOD,
+            )
 
-            # Run in background thread
-            timer = threading.Thread(target=delayed_hide, daemon=True)
-            timer.start()
+    def _process_startup_hides(self) -> None:
+        """Apply due initial hides from the main loop."""
+        now = time.monotonic()
+        due_monitor_ids = [
+            monitor_id
+            for monitor_id, pending in self._startup_hides.items()
+            if pending.hide_at <= now
+        ]
+
+        for monitor_id in due_monitor_ids:
+            pending = self._startup_hides.pop(monitor_id, None)
+            if pending is None:
+                continue
+
+            instance = pending.instance
+            current = self._waybar_manager.get_instance(monitor_id)
+            if current is not instance or not instance.is_alive():
+                continue
+            if self._cursor_in_bar_zone(monitor_id):
+                log.info(
+                    "Monitor %s: startup hide skipped, cursor in bar zone",
+                    monitor_id,
+                )
+                continue
+            if instance.state != WaybarState.VISIBLE:
+                continue
+
+            try:
+                instance.hide()
+            except RuntimeError:
+                continue
+
+            self._waybar_manager.set_state(monitor_id, WaybarState.HIDDEN)
+            self._state_engine.get_or_create_monitor_state(
+                monitor_id
+            ).current_state = WaybarState.HIDDEN
+            log.info("Monitor %s: hidden after startup grace period", monitor_id)
 
     def _cursor_in_bar_zone(self, monitor_id: int) -> bool:
         """Check whether the real cursor is inside the bar detection zone."""
@@ -798,7 +821,7 @@ class AutohideController:
             self._fullscreen_handler.remove_monitor(monitor_id)
             self._exit_checks.pop(monitor_id, None)
             self._cursor_in_sensor_zone.pop(monitor_id, None)
-            self._waybar_start_times.pop(monitor_id, None)
+            self._startup_hides.pop(monitor_id, None)
             if self._last_cursor_monitor == monitor_id:
                 self._last_cursor_monitor = None
             if monitor_name and self._cursor_manager:
@@ -1052,20 +1075,20 @@ class AutohideController:
                     continue
 
                 # Skip if waybar is still in startup grace period
-                if monitor_id in self._waybar_start_times:
-                    elapsed = time.time() - self._waybar_start_times[monitor_id]
-                    if elapsed < self.STARTUP_GRACE_PERIOD:
-                        log.debug(
-                            f"Monitor {monitor_id}: skipping toggle during startup grace period ({elapsed:.1f}s)"
-                        )
-                        self._state_engine.get_or_create_monitor_state(
-                            monitor_id
-                        ).current_state = old_state
-                        self._waybar_manager.set_state(monitor_id, old_state)
-                        continue
-                    else:
-                        # Grace period passed, clean up the entry
-                        del self._waybar_start_times[monitor_id]
+                pending_startup_hide = self._startup_hides.get(monitor_id)
+                if (
+                    pending_startup_hide
+                    and time.monotonic() < pending_startup_hide.hide_at
+                ):
+                    log.debug(
+                        "Monitor %s: skipping toggle during startup grace period",
+                        monitor_id,
+                    )
+                    self._state_engine.get_or_create_monitor_state(
+                        monitor_id
+                    ).current_state = old_state
+                    self._waybar_manager.set_state(monitor_id, old_state)
+                    continue
 
                 # Skip if process is not alive
                 if not instance.is_alive():
@@ -1181,6 +1204,9 @@ class AutohideController:
                 # Process scheduled hide rechecks with one shared cursor query.
                 self._process_exit_checks()
 
+                # Apply initial hides without mutating state from a worker thread.
+                self._process_startup_hides()
+
                 # Check process health
                 self._check_process_health()
 
@@ -1200,6 +1226,7 @@ class AutohideController:
         log.info("Shutting down...")
 
         self._exit_checks.clear()
+        self._startup_hides.clear()
 
         # Stop socket2 listener
         if self._socket2_listener:
