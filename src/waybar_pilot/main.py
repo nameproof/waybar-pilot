@@ -32,6 +32,31 @@ LOG_DATE_FORMAT = "%H:%M:%S"
 _CRASH_AIDS_INSTALLED = False
 
 
+class _HelpArgumentParser(argparse.ArgumentParser):
+    """Render description first and guidance immediately before options."""
+
+    def __init__(self, *args, options_intro: str, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._options_intro = options_intro
+
+    def format_help(self) -> str:
+        formatter = self._get_formatter()
+        formatter.add_text(self.description)
+        formatter.add_usage(
+            self.usage,
+            self._actions,
+            self._mutually_exclusive_groups,
+        )
+        formatter.add_text(self._options_intro)
+        for action_group in self._action_groups:
+            formatter.start_section(action_group.title)
+            formatter.add_text(action_group.description)
+            formatter.add_arguments(action_group._group_actions)
+            formatter.end_section()
+        formatter.add_text(self.epilog)
+        return formatter.format_help()
+
+
 def _get_version() -> str:
     """Read the source-tree version, then fall back to installed metadata."""
     pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
@@ -550,12 +575,12 @@ def main() -> int:
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    parser = argparse.ArgumentParser(
+    parser = _HelpArgumentParser(
         description=(
             "Per-monitor Waybar manager with hide and show functionality based on "
             "cursor position."
         ),
-        epilog=(
+        options_intro=(
             "Monitor selectors accept the name or serial reported by "
             "`hyprctl -j monitors`."
         ),
