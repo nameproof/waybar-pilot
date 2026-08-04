@@ -575,7 +575,7 @@ class AutohideController:
     def _schedule_exit_check(self, monitor_id: int, delay: float) -> None:
         """Schedule a hide recheck to be processed by the main loop."""
         self._exit_checks[monitor_id] = PendingExitCheck(
-            next_check_at=time.time() + delay,
+            next_check_at=time.monotonic() + delay,
         )
 
     def _clear_sensor_zone_state(
@@ -676,7 +676,7 @@ class AutohideController:
         if not self._exit_checks:
             return
 
-        now = time.time()
+        now = time.monotonic()
         due_monitor_ids = [
             monitor_id
             for monitor_id, pending in self._exit_checks.items()

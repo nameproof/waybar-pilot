@@ -183,7 +183,10 @@ class WaybarInstance:
             with os.fdopen(fd, "w") as f:
                 json.dump(config_content, f, indent=2)
         except OSError:
-            os.close(fd)
+            try:
+                Path(path).unlink()
+            except OSError:
+                pass
             raise
 
         return Path(path)

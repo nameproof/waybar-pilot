@@ -345,12 +345,14 @@ def check_requirements() -> bool:
         import gi
 
         gi.require_version("Gtk", "3.0")
+        gi.require_version("GtkLayerShell", "0.1")
         from gi.repository import Gtk as _Gtk  # noqa: F401
+        from gi.repository import GtkLayerShell as _GtkLayerShell  # noqa: F401
 
         return True
-    except ImportError:
-        log.error("Missing required dependency - PyGObject (GTK bindings)")
-        log.error("Please install python-gobject:")
+    except (ImportError, ValueError):
+        log.error("Missing required dependency - GTK 3 or GtkLayerShell bindings")
+        log.error("Please install the required PyGObject and layer-shell packages:")
         log.error("  Arch: sudo pacman -S python-gobject")
         log.error("  Debian/Ubuntu: sudo apt install python3-gi")
         log.error("  Fedora: sudo dnf install python3-gobject")
