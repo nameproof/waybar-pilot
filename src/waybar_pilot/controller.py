@@ -1,11 +1,13 @@
 """Main controller orchestrating waybar autohide functionality."""
 
+from collections import deque
 from dataclasses import dataclass
 import logging
 import signal
 import sys
+import threading
 import time
-from queue import Empty, Queue
+from queue import Empty
 from typing import Dict, List, Optional, Set
 
 from .config import Config, ResolvedMonitorSelection, WAYBAR_PROC, WaybarState
@@ -55,6 +57,47 @@ class PendingStartupHide:
     hide_at: float
 
 
+class EventBuffer:
+    """Bounded event buffer that coalesces redundant Hyprland events."""
+
+    def __init__(self, maxsize: int = 256):
+        self._events: deque[object] = deque()
+        self._maxsize = maxsize
+        self._lock = threading.Lock()
+
+    def put(self, event: object) -> None:
+        """Append an event without blocking producers."""
+        with self._lock:
+            if isinstance(event, HyprlandEvent):
+                for index, queued in enumerate(self._events):
+                    if (
+                        isinstance(queued, HyprlandEvent)
+                        and queued.event_type == event.event_type
+                    ):
+                        del self._events[index]
+                        break
+
+            if len(self._events) >= self._maxsize:
+                self._discard_oldest_hyprland_event()
+            if len(self._events) >= self._maxsize:
+                self._events.popleft()
+            self._events.append(event)
+
+    def _discard_oldest_hyprland_event(self) -> None:
+        """Prefer retaining ordered cursor transitions when making room."""
+        for index, queued in enumerate(self._events):
+            if isinstance(queued, HyprlandEvent):
+                del self._events[index]
+                return
+
+    def get_nowait(self) -> object:
+        """Return the oldest event or raise Empty."""
+        with self._lock:
+            if not self._events:
+                raise Empty
+            return self._events.popleft()
+
+
 class AutohideController:
     """Main controller for waybar autohide.
 
@@ -80,6 +123,7 @@ class AutohideController:
 
     # --- GTK event processing ---
     GTK_MAX_EVENTS_PER_TICK = 50  # Max GTK events processed per main loop tick
+    MAX_EVENTS_PER_TICK = 64
 
     # --- Sensor retry ---
     SENSOR_RETRY_INTERVAL = 10  # Main loop ticks between sensor creation retries
@@ -101,7 +145,7 @@ class AutohideController:
         self._hyprland: Optional[HyprlandClient] = None
         self._waybar_manager: Optional[WaybarManager] = None
         self._state_engine: Optional[StateEngine] = None
-        self._event_queue: Optional[Queue] = None
+        self._event_queue: Optional[EventBuffer] = None
         self._socket2_listener: Optional[Socket2Listener] = None
         self._cursor_manager: Optional[CursorManager] = None
         self._fullscreen_handler: Optional[FullscreenHandler] = None
@@ -205,7 +249,7 @@ class AutohideController:
                 return False
 
             # Setup event queue and listener
-            self._event_queue = Queue()
+            self._event_queue = EventBuffer()
             self._socket2_listener = Socket2Listener(
                 event_queue=self._event_queue,
                 hyprland_client=self._hyprland,
@@ -506,10 +550,10 @@ class AutohideController:
         if not self._event_queue:
             return
 
-        # Process all pending events
+        # Process a bounded batch so GTK and health checks cannot be starved.
         events_to_process = []
         try:
-            while True:
+            while len(events_to_process) < self.MAX_EVENTS_PER_TICK:
                 event = self._event_queue.get_nowait()
                 events_to_process.append(event)
         except Empty:
@@ -520,6 +564,8 @@ class AutohideController:
         needs_visibility_update = False
         has_active_window_event = False
         last_active_window_event = None
+        last_monitor_event = None
+        monitors_before_refresh = self._monitors
 
         for event in events_to_process:
             if isinstance(event, (CursorEnter, CursorLeave)):
@@ -537,7 +583,7 @@ class AutohideController:
                     EventType.MONITOR_ADDED_V2,
                     EventType.MONITOR_REMOVED,
                 ):
-                    self._handle_monitor_change(event)
+                    last_monitor_event = event
                     needs_refresh = True
                     needs_visibility_update = True
                 elif event.event_type == EventType.ACTIVE_WORKSPACE:
@@ -561,6 +607,9 @@ class AutohideController:
 
         if needs_refresh:
             self._refresh_state()
+
+        if last_monitor_event is not None:
+            self._handle_monitor_change(last_monitor_event, monitors_before_refresh)
 
         if last_active_window_event is not None:
             focus_state_cleared = self._handle_active_window_focus_change(
@@ -788,15 +837,16 @@ class AutohideController:
                 self._cursor_in_sensor_zone[monitor_id] = False
                 self._start_bar_exit_timer(monitor_id)
 
-    def _handle_monitor_change(self, event: HyprlandEvent) -> None:
+    def _handle_monitor_change(
+        self,
+        event: HyprlandEvent,
+        previous_monitors: List[Monitor],
+    ) -> None:
         """Handle monitor add/remove events."""
         log.info(f"Monitor change: {event.event_type.value} - {event.raw_data.strip()}")
 
-        # Snapshot monitor id->name mapping BEFORE refresh so we can
-        # clean up sensors for monitors that disappear from the list.
-        old_monitor_names = {m.id: m.name for m in self._monitors}
-
-        self._refresh_state()
+        # Preserve old names so removed-monitor sensors can be cleaned up.
+        old_monitor_names = {m.id: m.name for m in previous_monitors}
         self._resolve_monitor_selection()
 
         # Get current managed monitors
