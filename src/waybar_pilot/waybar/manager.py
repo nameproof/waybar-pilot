@@ -5,6 +5,7 @@ from typing import Dict, Iterator, List, Optional
 
 from ..config import Config, WaybarState
 from ..hyprland import Monitor
+from ..processes import find_named_pids, terminate_pids
 from .instance import WaybarInstance
 
 log = logging.getLogger("waybar-pilot")
@@ -31,20 +32,13 @@ class WaybarManager:
 
     def has_external_waybars(self) -> bool:
         """Quick check: any waybar process not managed by us."""
-        import subprocess
-
-        try:
-            result = subprocess.run(
-                ["pgrep", "-x", "waybar"], capture_output=True, text=True
-            )
-            if result.returncode != 0:
-                return False
-            total_pids = len(
-                [ln for ln in result.stdout.strip().split("\n") if ln.strip()]
-            )
-            return total_pids > len(self._instances)
-        except Exception:
-            return False
+        managed_pids: set[int] = set()
+        for instance in self._instances.values():
+            try:
+                managed_pids.add(instance.pid)
+            except RuntimeError:
+                continue
+        return bool(find_named_pids("waybar") - managed_pids)
 
     def kill_all_external_waybars(self) -> int:
         """Kill all externally-started waybar processes.
@@ -52,10 +46,6 @@ class WaybarManager:
         Compares all waybar PIDs against our managed instances. Any PID
         not in our set is considered external and killed.
         """
-        import subprocess
-        import os
-        import signal
-
         # Collect managed PIDs
         managed_pids: set[int] = set()
         for instance in self._instances.values():
@@ -64,37 +54,9 @@ class WaybarManager:
             except RuntimeError:
                 pass
 
-        killed = 0
-        try:
-            result = subprocess.run(
-                ["pgrep", "-x", "waybar"], capture_output=True, text=True
-            )
-            if result.returncode != 0:
-                return 0
-
-            for line in result.stdout.strip().split("\n"):
-                pid_str = line.strip()
-                if not pid_str:
-                    continue
-                try:
-                    pid = int(pid_str)
-                except ValueError:
-                    continue
-
-                if pid in managed_pids:
-                    continue
-
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                    try:
-                        os.kill(pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    killed += 1
-                except (ProcessLookupError, PermissionError):
-                    pass
-        except Exception as e:
-            log.warning(f"Error in kill_all_external_waybars: {e}")
+        external_pids = find_named_pids("waybar") - managed_pids
+        terminate_pids(external_pids)
+        killed = len(external_pids)
 
         if killed > 0:
             log.info(f"Killed {killed} external waybar(s)")

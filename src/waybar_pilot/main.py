@@ -17,6 +17,12 @@ import time
 import tomllib
 
 from .config import WAYBAR_PROC
+from .processes import (
+    find_named_pids,
+    find_waybar_pilot_pids,
+    is_waybar_pilot_process,
+    terminate_pids,
+)
 
 # Marker set on the real background child so it runs the app directly
 # instead of trying to daemonize again.
@@ -213,14 +219,7 @@ def _is_pid_alive(pid: int) -> bool:
 
 def _is_our_process(pid: int) -> bool:
     """Check if PID belongs to a waybar-pilot process."""
-    try:
-        with open(f"/proc/{pid}/cmdline", "rb") as f:
-            cmdline = f.read().decode(errors="ignore").lower()
-        return any(
-            x in cmdline for x in ("waybar_pilot", "waybar-pilot", "-m waybar_pilot")
-        )
-    except (FileNotFoundError, PermissionError, OSError):
-        return False
+    return is_waybar_pilot_process(pid)
 
 
 def _write_pid_file() -> None:
@@ -403,34 +402,14 @@ def _kill_existing_processes(args) -> None:
     Args:
         args: Parsed command line arguments
     """
-    current_pid = os.getpid()
-
     # Prefer PID file for clean shutdown
     _kill_by_pid_file()
 
-    # Fallback: kill managed bar processes directly
-    subprocess.run(["pkill", "-9", "-x", WAYBAR_PROC], capture_output=True)
+    # With no live controller, every owned waybar is unmanaged.
+    terminate_pids(find_named_pids(WAYBAR_PROC))
 
-    # Fallback: broad pgrep if PID file was missing/stale
-    for pattern in ("waybar-pilot", "python.*waybar_pilot", "waybar_pilot"):
-        try:
-            result = subprocess.run(
-                ["pgrep", "-f", pattern], capture_output=True, text=True
-            )
-            if result.returncode == 0:
-                for line in result.stdout.strip().split("\n"):
-                    if line:
-                        try:
-                            pid = int(line.strip())
-                            if pid != current_pid:
-                                os.kill(pid, 9)
-                        except (ValueError, ProcessLookupError):
-                            pass
-        except Exception:
-            pass
-
-    # Wait for processes to die
-    time.sleep(0.5)
+    # Recover from a missing or stale PID file without broad pattern matching.
+    terminate_pids(find_waybar_pilot_pids())
 
 
 def _build_module_command(args) -> list[str]:

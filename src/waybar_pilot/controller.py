@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 import logging
 import signal
-import subprocess
 import sys
 import threading
 import time
@@ -24,6 +23,7 @@ from .hyprland import (
     Socket2Listener,
 )
 from .state import StateEngine
+from .processes import find_named_pids, terminate_pids
 from .waybar import WaybarInstance, WaybarManager
 
 import gi
@@ -70,7 +70,6 @@ class AutohideController:
     STARTUP_GRACE_PERIOD = 0.5  # Wait before first hide after waybar starts
     EXIT_GRACE_PERIOD = 0.1  # Initial delay after cursor leaves sensor
     EXIT_EXTENDED_PERIOD = 2.0  # Extended delay while cursor is in bar area
-    PROCESS_KILL_SETTLE = 0.5  # Wait after pkill for processes to die
 
     # --- GTK event processing ---
     GTK_MAX_EVENTS_PER_TICK = 50  # Max GTK events processed per main loop tick
@@ -309,21 +308,8 @@ class AutohideController:
         )
 
     def _kill_existing_waybar(self) -> None:
-        """Kill any existing waybar processes aggressively."""
-        try:
-            subprocess.run(
-                ["pkill", "-15", "-x", WAYBAR_PROC],
-                check=False,
-                capture_output=True,
-            )
-            time.sleep(self.PROCESS_KILL_SETTLE)
-            subprocess.run(
-                ["pkill", "-9", "-x", WAYBAR_PROC],
-                check=False,
-                capture_output=True,
-            )
-        except (FileNotFoundError, OSError):
-            pass
+        """Kill every owned waybar before starting managed instances."""
+        terminate_pids(find_named_pids(WAYBAR_PROC))
 
     def _get_managed_monitor_ids(self) -> List[int]:
         """Get list of monitor IDs to manage.
