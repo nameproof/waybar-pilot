@@ -78,6 +78,9 @@ class AutohideController:
     STARTUP_GRACE_PERIOD = 0.5  # Wait before first hide after waybar starts
     EXIT_GRACE_PERIOD = 0.1  # Initial delay after cursor leaves sensor
     EXIT_EXTENDED_PERIOD = 2.0  # Extended delay while cursor is in bar area
+    CURSOR_POLL_SOCKET_TIMEOUT = 0.2
+    CURSOR_POLL_BACKOFF_INITIAL = 0.25
+    CURSOR_POLL_BACKOFF_MAX = 2.0
 
     # --- GTK event processing ---
     GTK_MAX_EVENTS_PER_TICK = 50  # Max GTK events processed per main loop tick
@@ -122,6 +125,9 @@ class AutohideController:
         self._cursor_query_reasons_this_tick: List[str] = []
         self._cursor_this_tick: Optional[CursorPosition] = None
         self._visible_threshold_polling_ids: Set[int] = set()
+        self._cursor_poll_degraded = False
+        self._cursor_poll_next_attempt_at = 0.0
+        self._cursor_poll_backoff = self.CURSOR_POLL_BACKOFF_INITIAL
 
         # Startup grace period tracking
         self._startup_hides: Dict[int, PendingStartupHide] = {}
@@ -653,6 +659,44 @@ class AutohideController:
             )
         self._cursor_query_reasons_this_tick.clear()
 
+    def _get_threshold_cursor_position(self) -> Optional[CursorPosition]:
+        """Query cursor over the socket with degraded-mode backoff."""
+        now = time.monotonic()
+        if self._cursor_poll_degraded and now < self._cursor_poll_next_attempt_at:
+            return None
+
+        self._cursor_query_reasons_this_tick.append("visible_threshold (socket)")
+        try:
+            cursor_pos = self._hyprland.get_cursor_position_socket(
+                timeout=self.CURSOR_POLL_SOCKET_TIMEOUT
+            )
+        except (HyprlandConnectionError, UnicodeError, ValueError) as exc:
+            if not self._cursor_poll_degraded:
+                self._cursor_poll_degraded = True
+                self._cursor_poll_backoff = self.CURSOR_POLL_BACKOFF_INITIAL
+                log.warning(
+                    "Cursor threshold polling degraded; retaining current bar state: %s",
+                    exc,
+                )
+            else:
+                self._cursor_poll_backoff = min(
+                    self._cursor_poll_backoff * 2,
+                    self.CURSOR_POLL_BACKOFF_MAX,
+                )
+
+            self._cursor_poll_next_attempt_at = (
+                time.monotonic() + self._cursor_poll_backoff
+            )
+            return None
+
+        if self._cursor_poll_degraded:
+            log.info("Cursor threshold polling recovered")
+        self._cursor_poll_degraded = False
+        self._cursor_poll_next_attempt_at = 0.0
+        self._cursor_poll_backoff = self.CURSOR_POLL_BACKOFF_INITIAL
+        self._cursor_this_tick = cursor_pos
+        return cursor_pos
+
     def _process_exit_checks(self) -> None:
         """Process due hide rechecks without extra cursor polling."""
         if not self._exit_checks:
@@ -722,14 +766,12 @@ class AutohideController:
         if not visible_autohide_ids:
             return
 
-        try:
-            cursor_pos = self._get_cursor_position_logged("visible_threshold")
-            cursor_monitor = self._state_engine.get_cursor_monitor(
-                cursor_pos, self._monitors
-            )
-        except Exception as exc:
-            log.debug(f"Error checking visible cursor threshold: {exc}")
+        cursor_pos = self._get_threshold_cursor_position()
+        if cursor_pos is None:
             return
+        cursor_monitor = self._state_engine.get_cursor_monitor(
+            cursor_pos, self._monitors
+        )
 
         hide_threshold = self._config.visible_cursor_height
         for monitor_id in visible_autohide_ids:

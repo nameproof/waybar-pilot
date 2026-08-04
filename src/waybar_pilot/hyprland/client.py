@@ -212,6 +212,15 @@ class HyprlandClient:
         stdout = self._run_hyprctl(["cursorpos"])
         return CursorPosition.from_string(stdout)
 
+    def get_cursor_position_socket(self, timeout: float) -> CursorPosition:
+        """Get cursor position directly from the request socket.
+
+        This deliberately has no ``hyprctl`` fallback so callers can use a
+        short timeout and control retry behavior without spawning processes.
+        """
+        stdout = self._run_socket_command("cursorpos", timeout=timeout)
+        return CursorPosition.from_string(stdout)
+
     def get_socket2_path(self) -> Path:
         """Get the path to Hyprland's socket2 for events.
 
