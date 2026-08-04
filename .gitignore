@@ -9,9 +9,6 @@ build/
 dist/
 *.egg-info/
 .ruff_cache/
-uv.lock
-
-
 # IDE
 .idea/
 *.iml
