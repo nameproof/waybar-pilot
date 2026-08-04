@@ -32,6 +32,15 @@ LOG_DATE_FORMAT = "%H:%M:%S"
 _CRASH_AIDS_INSTALLED = False
 
 
+class _HelpFormatter(argparse.HelpFormatter):
+    """Place usage below its heading without affecting line alignment."""
+
+    def _format_usage(self, usage, actions, groups, prefix):
+        formatted = super()._format_usage(usage, actions, groups, prefix="  ")
+        heading = f"{self._theme.heading}usage:{self._theme.reset}"
+        return f"{heading}\n{formatted}"
+
+
 class _HelpArgumentParser(argparse.ArgumentParser):
     """Render description first and guidance immediately before options."""
 
@@ -405,6 +414,8 @@ def _build_module_command(args) -> list[str]:
 
     if args.bar_height != 26:
         cmd.extend(["--bar-height", str(args.bar_height)])
+    if args.bar_position != "top":
+        cmd.extend(["--bar-position", args.bar_position])
     if args.hide_margin != 10:
         cmd.extend(["--hide-margin", str(args.hide_margin)])
     if args.hide_monitors:
@@ -584,6 +595,7 @@ def main() -> int:
             "Monitor selectors accept the name or serial reported by "
             "`hyprctl -j monitors`."
         ),
+        formatter_class=_HelpFormatter,
     )
 
     # Action flags (short forms)
@@ -622,12 +634,21 @@ def main() -> int:
         help="Waybar height in pixels (default: 26)",
     )
     parser.add_argument(
+        "--bar-position",
+        choices=("top", "bottom"),
+        default="top",
+        help=(
+            "Must match the effective 'position' in the main Waybar config. "
+            "Multiple positions not supported (default: top)"
+        ),
+    )
+    parser.add_argument(
         "--hide-margin",
         "--overlap",
         dest="hide_margin",
         type=_non_negative_int,
         default=10,
-        help="Extra cursor travel below the bar before hiding (default: 10)",
+        help="Extra cursor travel away from the bar before hiding (default: 10)",
     )
     parser.add_argument(
         "--hide-monitors",

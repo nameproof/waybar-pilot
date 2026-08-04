@@ -3,7 +3,6 @@
 from dataclasses import dataclass, field
 import logging
 from typing import Dict, List, Optional, Set
-import time
 
 from .models import Client, Monitor
 
@@ -18,7 +17,6 @@ class FullscreenState:
     monitor_name: str
     is_fullscreen: bool = False
     fullscreen_workspaces: Set[int] = field(default_factory=set)
-    last_change_time: float = field(default_factory=time.time)
 
 
 class FullscreenHandler:
@@ -99,7 +97,6 @@ class FullscreenHandler:
             if new_workspaces != state.fullscreen_workspaces:
                 state.fullscreen_workspaces = new_workspaces
                 state.is_fullscreen = is_fullscreen
-                state.last_change_time = time.time()
                 log.info(
                     "Monitor %s (%s): fullscreen %s -> %s (workspaces=%s)",
                     monitor.id,

@@ -119,12 +119,13 @@ class WaybarInstance:
 
         return "".join(result)
 
-    def _load_base_config(self, base_config: Path) -> dict | list:
+    @classmethod
+    def load_base_config(cls, base_config: Path) -> dict | list:
         """Load a Waybar JSONC object or array without discarding parse errors."""
         try:
             raw = base_config.read_text()
-            without_comments = self._strip_jsonc_comments(raw)
-            normalized = self._strip_jsonc_trailing_commas(without_comments)
+            without_comments = cls._strip_jsonc_comments(raw)
+            normalized = cls._strip_jsonc_trailing_commas(without_comments)
             config_content = json.loads(normalized)
         except (json.JSONDecodeError, OSError) as exc:
             raise RuntimeError(
@@ -141,6 +142,26 @@ class WaybarInstance:
             f"Waybar config {base_config} must contain an object or array of objects"
         )
 
+    @staticmethod
+    def config_directory() -> Path:
+        """Return the active user Waybar configuration directory."""
+        config_home = os.environ.get("XDG_CONFIG_HOME")
+        return (
+            Path(config_home) / "waybar"
+            if config_home
+            else Path.home() / ".config" / "waybar"
+        )
+
+    @classmethod
+    def resolve_base_config(cls) -> Optional[Path]:
+        """Return the active user Waybar config, if one exists."""
+        config_dir = cls.config_directory()
+        for name in ("config.jsonc", "config"):
+            candidate = config_dir / name
+            if candidate.exists():
+                return candidate
+        return None
+
     def _set_monitor_output(self, config_content: dict | list) -> None:
         """Restrict every configured bar to this instance's monitor."""
         configs = (
@@ -155,21 +176,10 @@ class WaybarInstance:
         Returns:
             Path to the temporary config file
         """
-        # Read base config
-        config_home = os.environ.get("XDG_CONFIG_HOME")
-        config_dir = (
-            Path(config_home) / "waybar"
-            if config_home
-            else Path.home() / ".config" / "waybar"
-        )
-        base_config = config_dir / "config.jsonc"
-
-        if not base_config.exists():
-            base_config = config_dir / "config"
-
+        base_config = self.resolve_base_config()
         config_content: dict | list = {}
-        if base_config.exists():
-            config_content = self._load_base_config(base_config)
+        if base_config is not None:
+            config_content = self.load_base_config(base_config)
 
         # Set output to this specific monitor
         self._set_monitor_output(config_content)
@@ -193,12 +203,7 @@ class WaybarInstance:
 
     def _resolve_style_path(self) -> Optional[Path]:
         """Resolve the real waybar style.css using the same XDG logic as the config."""
-        config_home = os.environ.get("XDG_CONFIG_HOME")
-        config_dir = (
-            Path(config_home) / "waybar"
-            if config_home
-            else Path.home() / ".config" / "waybar"
-        )
+        config_dir = self.config_directory()
 
         for name in ("style.css", "style.scss"):
             candidate = config_dir / name

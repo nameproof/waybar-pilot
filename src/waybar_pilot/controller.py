@@ -7,7 +7,13 @@ import time
 from queue import Empty
 from typing import Dict, List, Optional, Set
 
-from .config import Config, ResolvedMonitorSelection, WAYBAR_PROC, WaybarState
+from .config import (
+    BarPosition,
+    Config,
+    ResolvedMonitorSelection,
+    WAYBAR_PROC,
+    WaybarState,
+)
 from .cursor import CursorEnter, CursorLeave, CursorManager
 from .event_buffer import EventBuffer
 from .hyprland import (
@@ -169,6 +175,11 @@ class AutohideController:
 
             # Initialize waybar manager
             self._waybar_manager = WaybarManager()
+            try:
+                self._waybar_manager.validate_bar_position(self._config.bar_position)
+            except RuntimeError as exc:
+                log.error("Waybar configuration error: %s", exc)
+                return False
 
             # Get initial state
             self._refresh_state()
@@ -211,6 +222,7 @@ class AutohideController:
             try:
                 self._cursor_manager = CursorManager(
                     event_queue=self._event_queue,
+                    bar_position=self._config.bar_position,
                 )
                 # Sensors will be created on first main loop iteration
                 # to avoid blocking during initialization
@@ -225,6 +237,7 @@ class AutohideController:
             )
             log.info(f"Autohide selectors: {self._config.autohide_monitors}")
             log.info(f"Show selectors: {self._config.show_monitors}")
+            log.info("Bar position: %s", self._config.bar_position.value)
             log.info(
                 f"Resolved autohide IDs: {sorted(self._resolved_selection.autohide_ids)}"
             )
@@ -271,11 +284,11 @@ class AutohideController:
         """
         network_wait = self._config.wait_for_network
         external_wait = self.STARTUP_EXTERNAL_WAYBAR_WAIT
-        deadline = time.time() + max(network_wait, external_wait)
+        deadline = time.monotonic() + max(network_wait, external_wait)
 
         network_ready = network_wait <= 0
         external_wait_done = False
-        start = time.time()
+        start = time.monotonic()
 
         log.debug(
             "Waiting for startup conditions (network<=%ds external<=%.1fs)",
@@ -283,21 +296,21 @@ class AutohideController:
             external_wait,
         )
 
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             if not network_ready:
                 network_ready = self._network_available()
 
             if not external_wait_done:
                 if self._waybar_manager and self._waybar_manager.has_external_waybars():
                     external_wait_done = True
-                elif time.time() - start >= external_wait:
+                elif time.monotonic() - start >= external_wait:
                     external_wait_done = True
 
             if network_ready and external_wait_done:
-                if time.time() - start > 0.5:
+                if time.monotonic() - start > 0.5:
                     log.info(
                         "Startup conditions met after %.1fs",
-                        time.time() - start,
+                        time.monotonic() - start,
                     )
                 return
 
@@ -305,7 +318,7 @@ class AutohideController:
 
         log.warning(
             "Startup timeout after %.1fs: network=%s external=%s",
-            time.time() - start,
+            time.monotonic() - start,
             network_ready,
             external_wait_done,
         )
@@ -430,11 +443,21 @@ class AutohideController:
             monitor = next((m for m in self._monitors if m.id == monitor_id), None)
             if not monitor:
                 return False
-            relative_y = cursor_pos.y - monitor.y
-            return 0 <= relative_y <= self._config.visible_cursor_height
+            distance = self._cursor_distance_from_bar(cursor_pos, monitor)
+            return 0 <= distance <= self._config.visible_cursor_distance
         except Exception as e:
             log.debug(f"Error checking startup cursor position: {e}")
             return False
+
+    def _cursor_distance_from_bar(
+        self,
+        cursor_pos: CursorPosition,
+        monitor: Monitor,
+    ) -> int:
+        """Return cursor distance from the configured horizontal screen edge."""
+        if self._config.bar_position == BarPosition.TOP:
+            return cursor_pos.y - monitor.y
+        return monitor.bottom - 1 - cursor_pos.y
 
     def _refresh_state(self) -> None:
         """Refresh state from Hyprland.
@@ -747,24 +770,24 @@ class AutohideController:
             cursor_pos, self._monitors
         )
 
-        hide_threshold = self._config.visible_cursor_height
+        hide_threshold = self._config.visible_cursor_distance
         for monitor_id in visible_autohide_ids:
             monitor = next((m for m in self._monitors if m.id == monitor_id), None)
             if not monitor:
                 continue
 
-            relative_y = cursor_pos.y - monitor.y
+            edge_distance = self._cursor_distance_from_bar(cursor_pos, monitor)
             inside_threshold = (
-                cursor_monitor == monitor_id and relative_y <= hide_threshold
+                cursor_monitor == monitor_id and 0 <= edge_distance <= hide_threshold
             )
             was_inside = self._cursor_in_sensor_zone.get(monitor_id, False)
 
             if inside_threshold:
                 if not was_inside:
                     log.debug(
-                        "Monitor %s: actual cursor re-entered visible threshold (y=%s, threshold=%s)",
+                        "Monitor %s: actual cursor re-entered visible threshold (edge_distance=%s, threshold=%s)",
                         monitor_id,
-                        relative_y,
+                        edge_distance,
                         hide_threshold,
                     )
                 self._cursor_in_sensor_zone[monitor_id] = True
@@ -773,10 +796,10 @@ class AutohideController:
 
             if was_inside:
                 log.debug(
-                    "Monitor %s: actual cursor crossed visible threshold (cursor_monitor=%s, y=%s, threshold=%s)",
+                    "Monitor %s: actual cursor crossed visible threshold (cursor_monitor=%s, edge_distance=%s, threshold=%s)",
                     monitor_id,
                     cursor_monitor,
-                    relative_y,
+                    edge_distance,
                     hide_threshold,
                 )
                 self._cursor_in_sensor_zone[monitor_id] = False
@@ -904,7 +927,7 @@ class AutohideController:
 
         When a new window takes focus (e.g., browser opening from URL click),
         Hyprland may move the cursor to the new window. This can happen:
-        1. On the same monitor (cursor below sensor zone)
+        1. On the same monitor (cursor away from the sensor zone)
         2. On a different monitor (cursor warped to new monitor)
 
         In both cases, the sensor won't detect a leave event because the cursor
@@ -948,35 +971,33 @@ class AutohideController:
                     )
                     state_cleared = True
 
-            # Also check if cursor is below sensor zone on the SAME monitor
-            if cursor_monitor in self._cursor_in_sensor_zone:
-                if self._cursor_in_sensor_zone[cursor_monitor]:
-                    # Cursor is marked as "in sensor zone" but let's verify
-                    monitor = next(
-                        (m for m in self._monitors if m.id == cursor_monitor), None
-                    )
-                    if monitor:
-                        relative_y = cursor_pos.y - monitor.y
+            # Also verify the cursor is still near the configured edge.
+            if self._cursor_in_sensor_zone.get(cursor_monitor, False):
+                # Cursor is marked as "in sensor zone" but let's verify
+                monitor = next(
+                    (m for m in self._monitors if m.id == cursor_monitor), None
+                )
+                if monitor:
+                    edge_distance = self._cursor_distance_from_bar(cursor_pos, monitor)
+                    sensor_zone_distance = self._config.visible_cursor_distance
 
-                        # Calculate sensor zone height from config
-                        sensor_zone_height = self._config.visible_cursor_height
+                    if (
+                        edge_distance < 0 or edge_distance > sensor_zone_distance
+                    ) and self._clear_sensor_zone_state(
+                        cursor_monitor,
+                        schedule_exit_grace=True,
+                        reason="active window moved outside sensor zone",
+                    ):
+                        log.debug(
+                            "Active window change: cursor moved outside sensor "
+                            "zone on monitor %s (edge_distance=%s, zone=%spx), "
+                            "clearing stale state",
+                            cursor_monitor,
+                            edge_distance,
+                            sensor_zone_distance,
+                        )
 
-                        # If cursor is below the sensor zone, it's likely been moved
-                        if (
-                            relative_y > sensor_zone_height
-                            and self._clear_sensor_zone_state(
-                                cursor_monitor,
-                                schedule_exit_grace=True,
-                                reason="active window moved below sensor zone",
-                            )
-                        ):
-                            log.debug(
-                                f"Active window change: cursor moved below sensor zone "
-                                f"on monitor {cursor_monitor} (y={relative_y}, "
-                                f"zone={sensor_zone_height}px), clearing stale state"
-                            )
-
-                            state_cleared = True
+                        state_cleared = True
 
             # Update last cursor monitor tracking
             self._last_cursor_monitor = cursor_monitor

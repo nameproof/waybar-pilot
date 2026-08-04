@@ -4,6 +4,7 @@ import logging
 from queue import Queue
 from typing import Dict, List, Optional
 
+from ..config import BarPosition
 from ..hyprland.models import Monitor
 from .sensor import CursorSensor
 
@@ -31,13 +32,16 @@ class CursorManager:
     def __init__(
         self,
         event_queue: Queue,
+        bar_position: BarPosition,
     ):
         """Initialize cursor manager.
 
         Args:
             event_queue: Queue to push cursor events to
+            bar_position: Screen edge containing the managed Waybars
         """
         self._event_queue = event_queue
+        self._bar_position = bar_position
         self._sensors: Dict[str, CursorSensor] = {}  # monitor_name -> sensor
         self._gtk_display: Optional[Gdk.Display] = None
         self._gdk_monitor_map: Dict[
@@ -180,6 +184,7 @@ class CursorManager:
             sensor = CursorSensor(
                 monitor_name=monitor.name,
                 monitor_width=monitor.width,
+                bar_position=self._bar_position,
                 gdk_monitor=gdk_monitor,
                 event_callback=self._on_sensor_event,
             )

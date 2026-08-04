@@ -3,6 +3,7 @@
 import logging
 from typing import Dict, List, Optional
 
+from ..config import BarPosition
 from ..hyprland import Monitor
 from ..processes import find_named_pids, terminate_pids
 from .instance import WaybarInstance
@@ -23,6 +24,62 @@ class WaybarManager:
     def __init__(self):
         """Initialize the manager."""
         self._instances: Dict[int, WaybarInstance] = {}
+
+    def validate_bar_position(self, requested: BarPosition) -> None:
+        """Verify that every configured bar uses the requested screen edge."""
+        config_path = WaybarInstance.resolve_base_config()
+        config_content: dict | list = {}
+        if config_path is not None:
+            config_content = WaybarInstance.load_base_config(config_path)
+        elif requested == BarPosition.BOTTOM:
+            expected = WaybarInstance.config_directory() / "config.jsonc"
+            raise RuntimeError(
+                "Configured --bar-position 'bottom', but no Waybar config was "
+                f'found. Create {expected} with "position": "bottom", or use '
+                "--bar-position top."
+            )
+
+        bars = config_content if isinstance(config_content, list) else [config_content]
+        source = str(config_path) if config_path is not None else "the default config"
+
+        for index, bar in enumerate(bars, start=1):
+            label = f"bar definition #{index}" if len(bars) > 1 else "the bar"
+            configured = bar.get("position")
+            has_includes = bool(bar.get("include"))
+
+            if configured is None and has_includes:
+                if requested == BarPosition.BOTTOM:
+                    raise RuntimeError(
+                        f"Cannot verify --bar-position bottom: {label} in {source} "
+                        "inherits settings from included files but does not define "
+                        '\'position\' locally. Add "position": "bottom" to the '
+                        "main bar definition."
+                    )
+                log.warning(
+                    "%s in %s uses included files without a local 'position'; "
+                    "assuming Waybar's default position 'top'. Add "
+                    '"position": "top" locally to silence this warning.',
+                    label.capitalize(),
+                    source,
+                )
+                continue
+
+            effective = configured if configured is not None else BarPosition.TOP.value
+            try:
+                configured_position = BarPosition(effective)
+            except (TypeError, ValueError):
+                raise RuntimeError(
+                    f"Unsupported Waybar position {effective!r} in {label} of "
+                    f"{source}; waybar-pilot currently supports only 'top' and "
+                    "'bottom'."
+                ) from None
+            if configured_position != requested:
+                raise RuntimeError(
+                    f"Configured --bar-position {requested.value!r}, but {label} in "
+                    f"{source} uses position {configured_position.value!r}. Set its "
+                    "'position' to "
+                    f"{requested.value!r} or use --bar-position {effective}."
+                )
 
     def has_external_waybars(self) -> bool:
         """Quick check: any waybar process not managed by us."""

@@ -32,7 +32,6 @@ class HyprlandEvent:
 
     event_type: EventType
     raw_data: str
-    timestamp: float
 
 
 class Socket2Listener:
@@ -79,7 +78,6 @@ class Socket2Listener:
         return HyprlandEvent(
             event_type=event_type,
             raw_data=line,
-            timestamp=time.time(),
         )
 
     def _listen_loop(self) -> None:

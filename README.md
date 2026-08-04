@@ -2,7 +2,7 @@
 
 AI Disclaimer: Oh yes
 
-Intelligent waybar visibility management for Hyprland. `waybar-pilot` hides waybar in autohide mode and reveals it based on cursor proximity using event-driven GTK Layer Shell sensors.
+Intelligent waybar visibility management for Hyprland. `waybar-pilot` hides top- or bottom-positioned Waybars in autohide mode and reveals them based on cursor proximity using event-driven GTK Layer Shell sensors.
 
 Independent waybars on each monitor; run one monitor with autohide and another monitor with a static always-shown waybar.
 
@@ -14,7 +14,7 @@ https://github.com/user-attachments/assets/55fc5541-eec3-4c07-b1bc-c15e5e6252a7
 
 ## Features
 
-- **Cursor reveal**: Shows waybar when the cursor touches the top edge of the screen using event-driven sensors
+- **Cursor reveal**: Shows waybar when the cursor touches its configured top or bottom screen edge
 - **Multi-monitor support**: Per-monitor configuration (autohide vs always-show)
 - **Fullscreen awareness**: Disables cursor sensors during fullscreen
 - **Hysteresis**: Different thresholds for showing vs keeping visibility to prevent flicker
@@ -29,26 +29,24 @@ https://github.com/user-attachments/assets/55fc5541-eec3-4c07-b1bc-c15e5e6252a7
 - Hyprland
 - Waybar
 
-You can verify the current machine for detailed reqs:
-
-```bash
-make check-runtime
-```
-
 ## Installation
+
+If `pipx` is missing, install your distro's package first.
+
+> [!NOTE]
+> If you previously installed waybar-pilot from `git clone`, uninstall it before switching to the GitHub installation:
+>
+> ```bash
+> pipx uninstall waybar-pilot
+> ```
 
 Recommended install:
 
 ```bash
-git clone https://github.com/nameproof/waybar-pilot.git
-cd waybar-pilot
-
-pipx install --system-site-packages .
+pipx install --system-site-packages git+https://github.com/nameproof/waybar-pilot.git
 ```
 
-Plain `pipx install .` is not recommended here because isolated virtualenvs may not see the system GTK / GI Python modules this project uses.
-
-If `pipx` is missing, install your distro's package first.
+`--system-site-packages` is required so the isolated environment can access the system GTK / GI Python modules used by waybar-pilot.
 
 Uninstall:
 
@@ -64,24 +62,16 @@ pipx upgrade --system-site-packages waybar-pilot
 
 ## Development
 
+```bash
+git clone https://github.com/nameproof/waybar-pilot.git
+cd waybar-pilot
+```
+
+- `make check-runtime`: check detailed requirements
 - `make sync`: create or update the local `uv` environment for dev tools
-- `make lint`: run Ruff checks
 - `make format`: run Ruff formatting
+- `make lint`: run Ruff checks
 - `PYTHONPATH=src python3 -m waybar_pilot`: run the app from the source tree with system Python
-
-Setup:
-
-```bash
-make sync
-```
-
-Typical workflow:
-
-```bash
-make lint
-make format
-PYTHONPATH=src python3 -m waybar_pilot
-```
 
 ## Usage
 
@@ -129,7 +119,8 @@ exec-once = waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--bar-height` | Waybar height in pixels | `26` |
-| `--hide-margin` | Extra cursor travel below the bar before hiding | `10` |
+| `--bar-position` | Must match the effective 'position' in the main Waybar config. Multiple positions not supported (`top` or `bottom`) | `top` |
+| `--hide-margin` | Extra cursor travel away from the bar before hiding | `10` |
 | `--hide-monitors` | Comma-separated monitor selectors for autohide (`DP-1`, `ABC123`) | All monitors |
 | `--show-monitors` | Comma-separated monitor selectors to always show (disable autohide) | None |
 | `--wait-for-network` | Seconds to wait for network before starting waybar | `20` |
@@ -144,7 +135,7 @@ waybar-pilot -s
 # Auto-hide on DP-1, always show on eDP-1
 waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
 
-# Keep the bar visible farther below its bottom edge
+# Keep the bar visible farther away from its screen edge
 waybar-pilot --hide-margin 40
 
 # Custom bar height with specific monitors

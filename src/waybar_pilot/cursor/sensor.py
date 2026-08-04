@@ -1,8 +1,10 @@
-"""GTK Layer Shell cursor sensor for detecting cursor at top edge."""
+"""GTK Layer Shell cursor sensor for detecting cursor at a screen edge."""
 
 import logging
 import threading
 from typing import Callable, Optional
+
+from ..config import BarPosition
 
 import gi
 
@@ -12,14 +14,13 @@ gi.require_version("GtkLayerShell", "0.1")
 
 from gi.repository import Gtk, Gdk, GtkLayerShell, GLib  # type: ignore  # noqa: E402
 
-
 log = logging.getLogger("waybar-pilot")
 
 
 class CursorSensor(Gtk.Window):
-    """Invisible sensor strip at top of monitor using GTK Layer Shell.
+    """Invisible sensor strip at the bar edge using GTK Layer Shell.
 
-    Creates a transparent, input-only 10px strip at the top edge that:
+    Creates a transparent, input-only strip at the configured edge that:
     - Detects cursor enter/leave events (no polling)
     - Passes clicks through to waybar below
     - Emits events to a callback for processing
@@ -30,8 +31,8 @@ class CursorSensor(Gtk.Window):
     """
 
     # Sensor dimensions
-    SENSOR_HEIGHT = 1  # pixels - fixed reveal strip at top edge
-    TRIGGER_HEIGHT = 1  # pixels - logical reveal threshold at top edge
+    SENSOR_HEIGHT = 1  # pixels - fixed reveal strip at the screen edge
+    TRIGGER_HEIGHT = 1  # pixels - logical reveal threshold at the screen edge
 
     # Debounce time to prevent flickering during cursor movement (milliseconds)
     DEBOUNCE_MS = 50
@@ -40,6 +41,7 @@ class CursorSensor(Gtk.Window):
         self,
         monitor_name: str,
         monitor_width: int,
+        bar_position: BarPosition,
         gdk_monitor: Gdk.Monitor,
         event_callback: Callable,
     ):
@@ -48,6 +50,7 @@ class CursorSensor(Gtk.Window):
         Args:
             monitor_name: Hyprland monitor name (e.g., "DP-1")
             monitor_width: Width of the monitor in pixels
+            bar_position: Screen edge containing the Waybar
             gdk_monitor: GDK monitor object for this display
             event_callback: Function to call with events (enter, leave, motion)
         """
@@ -56,6 +59,7 @@ class CursorSensor(Gtk.Window):
         self._monitor_name = monitor_name
         self._monitor_width = monitor_width
         self._sensor_height = self.SENSOR_HEIGHT
+        self._bar_position = bar_position
         self._gdk_monitor = gdk_monitor
         self._event_callback = event_callback
 
@@ -84,8 +88,13 @@ class CursorSensor(Gtk.Window):
         # Set layer to TOP (same as waybar, under notifications/overlays)
         GtkLayerShell.set_layer(self, GtkLayerShell.Layer.TOP)
 
-        # Anchor to top of screen, full width
-        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.TOP, True)
+        # Anchor to the configured horizontal edge, full width
+        edge = (
+            GtkLayerShell.Edge.TOP
+            if self._bar_position == BarPosition.TOP
+            else GtkLayerShell.Edge.BOTTOM
+        )
+        GtkLayerShell.set_anchor(self, edge, True)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.LEFT, True)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.RIGHT, True)
 
@@ -187,10 +196,12 @@ class CursorSensor(Gtk.Window):
 
     def _should_trigger(self, y: float) -> bool:
         """Return True when the cursor is at the reveal threshold."""
-        return y < self.TRIGGER_HEIGHT
+        if self._bar_position == BarPosition.TOP:
+            return y < self.TRIGGER_HEIGHT
+        return y >= self._sensor_height - self.TRIGGER_HEIGHT
 
     def _activate_trigger(self) -> None:
-        """Emit reveal event once when the cursor reaches the top edge."""
+        """Emit reveal event once when the cursor reaches the configured edge."""
         if not self._trigger_active:
             self._trigger_active = True
             log.debug(
@@ -210,7 +221,7 @@ class CursorSensor(Gtk.Window):
         return False  # Don't stop propagation
 
     def _on_motion(self, widget: Gtk.Widget, event: Gdk.EventMotion) -> bool:
-        """Trigger reveal when motion reaches the top edge threshold."""
+        """Trigger reveal when motion reaches the edge threshold."""
         if not self._cursor_inside:
             return False
 

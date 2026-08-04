@@ -16,6 +16,13 @@ class WaybarState(StrEnum):
     HIDDEN = "0"
 
 
+class BarPosition(StrEnum):
+    """Supported Waybar screen edges."""
+
+    TOP = "top"
+    BOTTOM = "bottom"
+
+
 _CONNECTOR_PATTERN = re.compile(r"^(eDP|DP|HDMI|DVI|VGA|WL|LVDS|Virtual)-")
 WAYBAR_PROC = "waybar"
 
@@ -46,6 +53,7 @@ class Config:
     # Bar dimensions
     bar_height: int
     hide_margin: int
+    bar_position: BarPosition
 
     # Monitor configuration
     autohide_monitors: List[str]
@@ -60,8 +68,8 @@ class Config:
             raise ValueError(f"Monitor selectors cannot overlap: {sorted(overlap)}")
 
     @property
-    def visible_cursor_height(self) -> int:
-        """Maximum cursor distance from the monitor top before hiding."""
+    def visible_cursor_distance(self) -> int:
+        """Maximum cursor distance from the bar edge before hiding."""
         return self.bar_height + self.hide_margin
 
     def resolve_monitor_selection(
@@ -146,6 +154,7 @@ class Config:
         # Validate bar dimensions
         bar_height = args.bar_height
         hide_margin = args.hide_margin
+        bar_position = BarPosition(args.bar_position)
 
         if bar_height <= 0:
             raise ValueError(f"bar-height must be positive, got {bar_height}")
@@ -163,6 +172,7 @@ class Config:
         return cls(
             bar_height=bar_height,
             hide_margin=hide_margin,
+            bar_position=bar_position,
             autohide_monitors=autohide_monitors,
             show_monitors=show_monitors,
             wait_for_network=wait_for_network,
