@@ -1,5 +1,6 @@
 """Socket2 event listener for Hyprland events."""
 
+import codecs
 import socket
 import threading
 import time
@@ -186,13 +187,14 @@ class Socket2Listener:
                 sock.settimeout(1.0)
 
                 buffer = ""
+                decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
                 while self._running:
                     try:
-                        data = sock.recv(4096).decode("utf-8")
+                        data = sock.recv(4096)
                         if not data:
                             break
 
-                        buffer += data
+                        buffer += decoder.decode(data)
                         lines = buffer.split("\n")
                         buffer = lines.pop()  # Keep incomplete line
 

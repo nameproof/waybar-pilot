@@ -33,6 +33,8 @@ class HyprlandClient:
     semantics — every call still hits the compositor, no caching.
     """
 
+    HYPRCTL_TIMEOUT = 3.0
+
     def __init__(self):
         self._hyprctl_path = "hyprctl"
         self._request_socket_path: Optional[Path] = None
@@ -131,12 +133,17 @@ class HyprlandClient:
                 capture_output=True,
                 text=True,
                 check=check,
+                timeout=self.HYPRCTL_TIMEOUT,
             )
             return result.stdout
         except FileNotFoundError:
             raise HyprlandConnectionError(f"hyprctl not found at {self._hyprctl_path}")
         except subprocess.CalledProcessError as e:
             raise HyprlandError(f"hyprctl {' '.join(args)} failed: {e.stderr}")
+        except subprocess.TimeoutExpired as e:
+            raise HyprlandConnectionError(
+                f"hyprctl {' '.join(args)} timed out after {self.HYPRCTL_TIMEOUT}s"
+            ) from e
 
     def is_running(self) -> bool:
         """Check if Hyprland is running.
