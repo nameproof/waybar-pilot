@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import textwrap
@@ -193,15 +194,62 @@ def _get_pid_file_path() -> Path:
     return _get_runtime_dir() / "waybar-pilot.pid"
 
 
-def _read_pid_file() -> int | None:
-    """Read PID from file if it exists and is valid."""
-    path = _get_pid_file_path()
-    if not path.exists():
-        return None
+def _ensure_runtime_dir() -> Path:
+    """Create and validate the private runtime directory."""
+    runtime_dir = _get_runtime_dir()
+    runtime_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+    info = runtime_dir.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+        raise RuntimeError(
+            f"Unsafe runtime directory {runtime_dir}: expected an owned real directory"
+        )
+
+    if stat.S_IMODE(info.st_mode) != 0o700:
+        runtime_dir.chmod(0o700)
+    return runtime_dir
+
+
+def _open_runtime_dir() -> int:
+    """Open the validated runtime directory without following a final symlink."""
+    runtime_dir = _ensure_runtime_dir()
+    return os.open(
+        runtime_dir,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+    )
+
+
+def _open_runtime_file(name: str, flags: int) -> int:
+    """Open an owned regular runtime file without following symlinks."""
+    directory_fd = _open_runtime_dir()
+    try:
+        file_fd = os.open(
+            name,
+            flags | os.O_NOFOLLOW,
+            mode=0o600,
+            dir_fd=directory_fd,
+        )
+    finally:
+        os.close(directory_fd)
 
     try:
-        return int(path.read_text().strip())
-    except (ValueError, OSError):
+        info = os.fstat(file_fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+            raise RuntimeError(f"Unsafe runtime file: {name}")
+        os.fchmod(file_fd, 0o600)
+        return file_fd
+    except Exception:
+        os.close(file_fd)
+        raise
+
+
+def _read_pid_file() -> int | None:
+    """Read PID from file if it exists and is valid."""
+    try:
+        file_fd = _open_runtime_file("waybar-pilot.pid", os.O_RDONLY)
+        with os.fdopen(file_fd, encoding="utf-8") as pid_file:
+            return int(pid_file.read(64).strip())
+    except (FileNotFoundError, ValueError, OSError, RuntimeError):
         return None
 
 
@@ -224,20 +272,26 @@ def _is_our_process(pid: int) -> bool:
 
 def _write_pid_file() -> None:
     """Write current PID to the PID file."""
-    path = _get_pid_file_path()
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    path.write_text(str(os.getpid()))
-    os.chmod(path, 0o600)
+    file_fd = _open_runtime_file(
+        "waybar-pilot.pid",
+        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+    )
+    with os.fdopen(file_fd, "w", encoding="utf-8") as pid_file:
+        pid_file.write(str(os.getpid()))
 
 
 def _remove_pid_file() -> None:
     """Remove the PID file if it exists."""
-    path = _get_pid_file_path()
-    if path.exists():
-        try:
-            path.unlink()
-        except OSError:
-            pass
+    try:
+        directory_fd = _open_runtime_dir()
+    except (OSError, RuntimeError):
+        return
+    try:
+        os.unlink("waybar-pilot.pid", dir_fd=directory_fd)
+    except FileNotFoundError:
+        pass
+    finally:
+        os.close(directory_fd)
 
 
 def _kill_by_pid_file() -> bool:
@@ -454,11 +508,12 @@ def _run_detached(args) -> int:
     cmd = _build_module_command(args)
     env = os.environ.copy()
     env[BACKGROUND_ENV] = "1"
-    log_path = _get_runtime_log_path()
 
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with log_path.open("w", encoding="utf-8") as log_file:
+    log_fd = _open_runtime_file(
+        "waybar-pilot.log",
+        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+    )
+    with os.fdopen(log_fd, "w", encoding="utf-8") as log_file:
         subprocess.Popen(
             cmd,
             env=env,
