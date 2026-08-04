@@ -62,8 +62,8 @@ def _format_help() -> str:
         ("    --debug", "Enable debug logging"),
         ("    --bar-height PX", "Waybar height in pixels (default: 26)"),
         (
-            "    --overlap PX",
-            "Extra pixels below the bar used for overlap and leave detection "
+            "    --hide-margin PX",
+            "Extra cursor travel below the bar before hiding "
             "(default: 10)",
         ),
         (
@@ -108,7 +108,7 @@ def _format_help() -> str:
     ]
 
     wrapped_specs = {
-        "    --overlap PX",
+        "    --hide-margin PX",
         "    --hide-monitors LIST",
         "    --show-monitors LIST",
         "    --initial-state STATE",
@@ -439,8 +439,8 @@ def _build_module_command(args) -> list[str]:
 
     if args.bar_height != 26:
         cmd.extend(["--bar-height", str(args.bar_height)])
-    if args.overlap != 10:
-        cmd.extend(["--overlap", str(args.overlap)])
+    if args.hide_margin != 10:
+        cmd.extend(["--hide-margin", str(args.hide_margin)])
     if args.hide_monitors:
         cmd.extend(["--hide-monitors", ",".join(map(str, args.hide_monitors))])
     if args.show_monitors:
@@ -652,10 +652,12 @@ def main() -> int:
         help="Waybar height in pixels (default: 26)",
     )
     parser.add_argument(
+        "--hide-margin",
         "--overlap",
+        dest="hide_margin",
         type=_non_negative_int,
         default=10,
-        help="Extra pixels below the bar used for overlap and leave detection (default: 10)",
+        help="Extra cursor travel below the bar before hiding (default: 10)",
     )
     parser.add_argument(
         "--hide-monitors",

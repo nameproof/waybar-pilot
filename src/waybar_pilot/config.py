@@ -51,7 +51,7 @@ class Config:
 
     # Bar dimensions
     bar_height: int
-    height_threshold: int
+    hide_margin: int
 
     # Monitor configuration
     autohide_monitors: List[str]
@@ -69,9 +69,9 @@ class Config:
             raise ValueError(f"Monitor selectors cannot overlap: {sorted(overlap)}")
 
     @property
-    def total_detection_height(self) -> int:
-        """Total height (bar + threshold) for window overlap detection."""
-        return self.bar_height + self.height_threshold
+    def visible_cursor_height(self) -> int:
+        """Maximum cursor distance from the monitor top before hiding."""
+        return self.bar_height + self.hide_margin
 
     def resolve_monitor_selection(
         self,
@@ -154,13 +154,13 @@ class Config:
         """
         # Validate bar dimensions
         bar_height = args.bar_height
-        height_threshold = args.overlap
+        hide_margin = args.hide_margin
 
         if bar_height <= 0:
             raise ValueError(f"bar-height must be positive, got {bar_height}")
 
-        if height_threshold < 0:
-            raise ValueError(f"overlap must be non-negative, got {height_threshold}")
+        if hide_margin < 0:
+            raise ValueError(f"hide-margin must be non-negative, got {hide_margin}")
 
         # Monitor selector lists (already parsed as lists by argparse)
         autohide_monitors = args.hide_monitors if args.hide_monitors else []
@@ -174,7 +174,7 @@ class Config:
 
         return cls(
             bar_height=bar_height,
-            height_threshold=height_threshold,
+            hide_margin=hide_margin,
             autohide_monitors=autohide_monitors,
             show_monitors=show_monitors,
             initial_state=initial_state,

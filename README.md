@@ -2,11 +2,11 @@
 
 AI Disclaimer: Oh yes
 
-Intelligent waybar visibility management for Hyprland. `waybar-pilot` hides waybar on window overlap and reveals it based on cursor proximity using event-driven GTK Layer Shell sensors.
+Intelligent waybar visibility management for Hyprland. `waybar-pilot` hides waybar in autohide mode and reveals it based on cursor proximity using event-driven GTK Layer Shell sensors.
 
 Independent waybars on each monitor; run one monitor with autohide and another monitor with a static always-shown waybar.
 
-Unlike Waybar's built-in `mode: hide` (which requires holding a modifier key), or simple auto-hide (which only responds to window overlap), `waybar-pilot` actively "pilots" a waybar for each monitor through different visibility states based on context: window overlap, cursor position, fullscreen state, and workspace changes.
+Unlike Waybar's built-in `mode: hide` (which requires holding a modifier key), `waybar-pilot` actively "pilots" a waybar for each monitor through different visibility states based on cursor position, fullscreen state, and workspace changes.
 
 Based on [HideyoshiNakazone/waybar-autohide](https://github.com/HideyoshiNakazone/waybar-autohide) but rewritten with event-driven cursor detection, fullscreen awareness, hysteresis-based smart behavior, CLI interface, and robust multi-monitor support.
 
@@ -14,7 +14,6 @@ https://github.com/user-attachments/assets/55fc5541-eec3-4c07-b1bc-c15e5e6252a7
 
 ## Features
 
-- **Auto-hide on overlap**: Automatically hides waybar when a window overlaps with the bar area
 - **Cursor reveal**: Shows waybar when the cursor touches the top edge of the screen using event-driven sensors
 - **Multi-monitor support**: Per-monitor configuration (autohide vs always-show)
 - **Fullscreen awareness**: Disables cursor sensors during fullscreen
@@ -130,7 +129,7 @@ exec-once = waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--bar-height` | Waybar height in pixels | `26` |
-| `--overlap` | Extra pixels below the bar used for overlap and leave detection | `10` |
+| `--hide-margin` | Extra cursor travel below the bar before hiding | `10` |
 | `--hide-monitors` | Comma-separated monitor selectors for autohide (`DP-1`, `ABC123`) | All monitors |
 | `--show-monitors` | Comma-separated monitor selectors to always show (disable autohide) | None |
 | `--initial-state` | Initial state for hide-monitors: `0`=hidden or `1`=visible | `0` |
@@ -146,14 +145,14 @@ waybar-pilot -s
 # Auto-hide on DP-1, always show on eDP-1
 waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
 
-# Increase overlap detection zone for better window detection
-waybar-pilot --overlap 40
+# Keep the bar visible farther below its bottom edge
+waybar-pilot --hide-margin 40
 
 # Custom bar height with specific monitors
 waybar-pilot --bar-height 30 --hide-monitors DP-1,HDMI-A-1 --show-monitors eDP-1
 
 # Restart cleanly with custom settings
-waybar-pilot -r --hide-monitors DP-1 --overlap 30
+waybar-pilot -r --hide-monitors DP-1 --hide-margin 30
 
 # Restart and see logs for debugging
 waybar-pilot -r -i --hide-monitors DP-1,HDMI-A-1

@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Set, Tuple
 import time
 
 from ..config import Config, WaybarState
-from ..hyprland.models import Client, CursorPosition, Monitor
+from ..hyprland.models import CursorPosition, Monitor
 
 
 @dataclass
@@ -88,7 +88,6 @@ class StateEngine:
         monitor_id: int,
         cursor_monitor: Optional[int],
         cursor_position: CursorPosition,
-        overlapping_clients: List[Client],
         cursor_in_sensor_zone: bool = False,
         is_fullscreen: bool = False,
         is_autohide_monitor: bool = True,
@@ -105,7 +104,6 @@ class StateEngine:
             monitor_id: Monitor to check
             cursor_monitor: Which monitor the cursor is on (if any)
             cursor_position: Current cursor position
-            overlapping_clients: Clients overlapping the bar area
             cursor_in_sensor_zone: Whether cursor is in sensor zone (event-driven mode)
             is_fullscreen: Whether monitor is in fullscreen mode
 
@@ -128,51 +126,8 @@ class StateEngine:
         if cursor_in_sensor_zone and cursor_monitor == monitor_id:
             return True
 
-        # Check if windows overlap the bar
-        if overlapping_clients:
-            return False
-
         # Default: not visible
         return False
-
-    def find_overlapping_clients(
-        self,
-        clients: List[Client],
-        monitor_id: int,
-        active_workspace_ids: List[int],
-    ) -> List[Client]:
-        """Find clients that overlap the bar area.
-
-        Args:
-            clients: All clients to check
-            monitor_id: Monitor ID to check
-            active_workspace_ids: Currently active workspace IDs
-
-        Returns:
-            List of clients overlapping the bar
-        """
-        overlapping = []
-        bar_top = 0
-        bar_bottom = self._config.total_detection_height
-
-        for client in clients:
-            # Skip invalid clients
-            if not client.mapped or client.hidden or client.fullscreen:
-                continue
-
-            # Wrong monitor
-            if client.monitor_id != monitor_id:
-                continue
-
-            # Wrong workspace
-            if client.workspace_id not in active_workspace_ids:
-                continue
-
-            # Check Y overlap
-            if client.overlaps_y_range(bar_top, bar_bottom):
-                overlapping.append(client)
-
-        return overlapping
 
     def get_cursor_monitor(
         self,
@@ -198,8 +153,6 @@ class StateEngine:
         managed_monitor_ids: List[int],
         cursor: CursorPosition,
         monitors: List[Monitor],
-        clients: List[Client],
-        active_workspace_ids: List[int],
         active_workspaces_by_monitor: Optional[Dict[int, int]] = None,
         cursor_in_sensor_zone: Optional[Dict[int, bool]] = None,
         autohide_monitor_ids: Optional[Set[int]] = None,
@@ -211,16 +164,13 @@ class StateEngine:
 
         This is the main orchestration method that:
         1. Finds which monitor the cursor is on
-        2. Finds overlapping clients per monitor
-        3. Decides visibility for each managed monitor
-        4. Returns list of (monitor_id, old_state, new_state) tuples
+        2. Decides visibility for each managed monitor
+        3. Returns list of (monitor_id, old_state, new_state) tuples
 
         Args:
             managed_monitor_ids: IDs of monitors being managed
             cursor: Current cursor position
             monitors: All available monitors
-            clients: All window clients
-            active_workspace_ids: Active workspace IDs
             active_workspaces_by_monitor: Dict of monitor_id -> active workspace ID
             cursor_in_sensor_zone: Dict of monitor_id -> bool for sensor zone state
             fullscreen_handler: FullscreenHandler instance to check fullscreen state
@@ -242,16 +192,6 @@ class StateEngine:
             autohide_monitor_ids = set()
         if show_monitor_ids is None:
             show_monitor_ids = set()
-
-        # Group clients by monitor for efficiency
-        clients_by_monitor: Dict[int, List[Client]] = {}
-        for monitor_id in managed_monitor_ids:
-            overlapping = self.find_overlapping_clients(
-                clients,
-                monitor_id,
-                active_workspace_ids,
-            )
-            clients_by_monitor[monitor_id] = overlapping
 
         # Decide for each managed monitor
         for monitor_id in managed_monitor_ids:
@@ -281,7 +221,6 @@ class StateEngine:
                 monitor_id,
                 cursor_monitor,
                 cursor,
-                clients_by_monitor.get(monitor_id, []),
                 cursor_in_sensor_zone=in_sensor,
                 is_fullscreen=is_fullscreen,
                 is_autohide_monitor=is_autohide_monitor,

@@ -398,12 +398,6 @@ class AutohideController:
             return
 
         # For autohide monitors, check current conditions
-        overlapping = self._state_engine.find_overlapping_clients(
-            self._clients,
-            monitor_id,
-            self._active_workspaces,
-        )
-
         cursor_monitor = None
         if self._cursor:
             cursor_monitor = self._state_engine.get_cursor_monitor(
@@ -415,7 +409,6 @@ class AutohideController:
             monitor_id,
             cursor_monitor,
             self._cursor or CursorPosition(0, 0),
-            overlapping,
         )
 
         # Update instance state to match actual visibility
@@ -471,7 +464,7 @@ class AutohideController:
             if not monitor:
                 return False
             relative_y = cursor_pos.y - monitor.y
-            return 0 <= relative_y <= self._config.total_detection_height
+            return 0 <= relative_y <= self._config.visible_cursor_height
         except Exception as e:
             log.debug(f"Error checking startup cursor position: {e}")
             return False
@@ -715,7 +708,7 @@ class AutohideController:
         Important: we intentionally do not use GTK enter/leave events alone to
         decide hiding. In practice, the top-edge layer-shell sensor can report
         inconsistent crossing coordinates depending on compositor/window state,
-        which made hide timing and `--overlap` behavior unreliable across the
+        which made hide timing and `--hide-margin` behavior unreliable across the
         experiments in this branch. Reveal stays event-driven; hide threshold
         correctness comes from actual cursor position.
         """
@@ -751,7 +744,7 @@ class AutohideController:
             log.debug(f"Error checking visible cursor threshold: {exc}")
             return
 
-        hide_threshold = self._config.total_detection_height
+        hide_threshold = self._config.visible_cursor_height
         for monitor_id in visible_autohide_ids:
             monitor = next((m for m in self._monitors if m.id == monitor_id), None)
             if not monitor:
@@ -967,7 +960,7 @@ class AutohideController:
 
                         # Calculate sensor zone height from config
                         sensor_zone_height = (
-                            self._config.bar_height + self._config.height_threshold
+                            self._config.visible_cursor_height
                         )
 
                         # If cursor is below the sensor zone, it's likely been moved
@@ -1023,8 +1016,6 @@ class AutohideController:
             managed_monitor_ids=self._waybar_manager.get_all_ids(),
             cursor=self._cursor or CursorPosition(0, 0),
             monitors=self._monitors,
-            clients=self._clients,
-            active_workspace_ids=self._active_workspaces,
             active_workspaces_by_monitor=active_workspaces_by_monitor,
             cursor_in_sensor_zone=self._cursor_in_sensor_zone,
             autohide_monitor_ids=self._resolved_selection.autohide_ids,
