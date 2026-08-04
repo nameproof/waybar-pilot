@@ -40,8 +40,6 @@ class CursorSensor(Gtk.Window):
         self,
         monitor_name: str,
         monitor_width: int,
-        monitor_x: int,
-        monitor_y: int,
         gdk_monitor: Gdk.Monitor,
         event_callback: Callable,
     ):
@@ -50,8 +48,6 @@ class CursorSensor(Gtk.Window):
         Args:
             monitor_name: Hyprland monitor name (e.g., "DP-1")
             monitor_width: Width of the monitor in pixels
-            monitor_x: X position of monitor
-            monitor_y: Y position of monitor
             gdk_monitor: GDK monitor object for this display
             event_callback: Function to call with events (enter, leave, motion)
         """
@@ -59,8 +55,6 @@ class CursorSensor(Gtk.Window):
 
         self._monitor_name = monitor_name
         self._monitor_width = monitor_width
-        self._monitor_x = monitor_x
-        self._monitor_y = monitor_y
         self._sensor_height = self.SENSOR_HEIGHT
         self._gdk_monitor = gdk_monitor
         self._event_callback = event_callback
@@ -166,16 +160,16 @@ class CursorSensor(Gtk.Window):
                 self._debounce_timer.cancel()
                 self._debounce_timer = None
 
-    def _debounced_leave(self, y: int) -> None:
+    def _debounced_leave(self) -> None:
         """Handle leave event after debounce period."""
         with self._debounce_lock:
             self._debounce_timer = None
 
         if self._trigger_active:
             self._trigger_active = False
-            self._event_callback("leave", self._monitor_name, y)
+            self._event_callback("leave", self._monitor_name)
 
-    def _schedule_leave(self, y: int, source: str) -> None:
+    def _schedule_leave(self) -> None:
         """Schedule a debounced logical leave from the reveal threshold."""
         if not self._trigger_active:
             return
@@ -187,7 +181,6 @@ class CursorSensor(Gtk.Window):
             self._debounce_timer = threading.Timer(
                 self.DEBOUNCE_MS / 1000.0,
                 self._debounced_leave,
-                args=(y,),
             )
             self._debounce_timer.daemon = True
             self._debounce_timer.start()
@@ -229,16 +222,13 @@ class CursorSensor(Gtk.Window):
 
     def _on_leave(self, widget: Gtk.Widget, event: Gdk.EventCrossing) -> bool:
         """Handle cursor leaving sensor zone with debouncing."""
-        # Get Y coordinate for hysteresis calculation
-        y = int(event.y) if hasattr(event, "y") else 0
-
         # Cancel any pending debounce
         self._cancel_debounce()
 
         self._cursor_inside = False
         # Physical leave means the cursor has exited the current tracking zone.
         if self._trigger_active:
-            self._schedule_leave(y, "leave")
+            self._schedule_leave()
 
         return False  # Don't stop propagation
 
@@ -275,13 +265,3 @@ class CursorSensor(Gtk.Window):
         self._cursor_inside = False
         self._trigger_active = False
         self.destroy()
-
-    @property
-    def is_active(self) -> bool:
-        """Check if sensor is currently active."""
-        return self._is_active
-
-    @property
-    def monitor_name(self) -> str:
-        """Get monitor name."""
-        return self._monitor_name

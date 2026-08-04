@@ -70,8 +70,7 @@ def _format_help() -> str:
         ("    --bar-height PX", "Waybar height in pixels (default: 26)"),
         (
             "    --hide-margin PX",
-            "Extra cursor travel below the bar before hiding "
-            "(default: 10)",
+            "Extra cursor travel below the bar before hiding (default: 10)",
         ),
         (
             "    --hide-monitors LIST",
@@ -187,11 +186,6 @@ def _get_runtime_dir() -> Path:
 def _get_runtime_log_path() -> Path:
     """Return the log path for background runs."""
     return _get_runtime_dir() / "waybar-pilot.log"
-
-
-def _get_pid_file_path() -> Path:
-    """Return the PID file path."""
-    return _get_runtime_dir() / "waybar-pilot.pid"
 
 
 def _ensure_runtime_dir() -> Path:

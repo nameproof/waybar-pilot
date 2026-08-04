@@ -1,17 +1,16 @@
 """Main controller orchestrating waybar autohide functionality."""
 
-from collections import deque
 from dataclasses import dataclass
 import logging
 import signal
 import sys
-import threading
 import time
 from queue import Empty
 from typing import Dict, List, Optional, Set
 
 from .config import Config, ResolvedMonitorSelection, WAYBAR_PROC, WaybarState
-from .cursor import CursorEnter, CursorLeave, CursorManager, CursorSensor
+from .cursor import CursorEnter, CursorLeave, CursorManager
+from .event_buffer import EventBuffer
 from .hyprland import (
     Client,
     CursorPosition,
@@ -57,47 +56,6 @@ class PendingStartupHide:
     hide_at: float
 
 
-class EventBuffer:
-    """Bounded event buffer that coalesces redundant Hyprland events."""
-
-    def __init__(self, maxsize: int = 256):
-        self._events: deque[object] = deque()
-        self._maxsize = maxsize
-        self._lock = threading.Lock()
-
-    def put(self, event: object) -> None:
-        """Append an event without blocking producers."""
-        with self._lock:
-            if isinstance(event, HyprlandEvent):
-                for index, queued in enumerate(self._events):
-                    if (
-                        isinstance(queued, HyprlandEvent)
-                        and queued.event_type == event.event_type
-                    ):
-                        del self._events[index]
-                        break
-
-            if len(self._events) >= self._maxsize:
-                self._discard_oldest_hyprland_event()
-            if len(self._events) >= self._maxsize:
-                self._events.popleft()
-            self._events.append(event)
-
-    def _discard_oldest_hyprland_event(self) -> None:
-        """Prefer retaining ordered cursor transitions when making room."""
-        for index, queued in enumerate(self._events):
-            if isinstance(queued, HyprlandEvent):
-                del self._events[index]
-                return
-
-    def get_nowait(self) -> object:
-        """Return the oldest event or raise Empty."""
-        with self._lock:
-            if not self._events:
-                raise Empty
-            return self._events.popleft()
-
-
 class AutohideController:
     """Main controller for waybar autohide.
 
@@ -139,7 +97,6 @@ class AutohideController:
         """
         self._config = config
         self._running = False
-        self._shutdown_requested = False
 
         # Components (initialized in initialize())
         self._hyprland: Optional[HyprlandClient] = None
@@ -153,9 +110,7 @@ class AutohideController:
         # State cache
         self._monitors: List[Monitor] = []
         self._clients: List[Client] = []
-        self._active_workspaces: List[int] = []
         self._active_workspaces_by_monitor: Dict[int, int] = {}
-        self._cursor: Optional[CursorPosition] = None
 
         # Cursor tracking
         self._cursor_in_sensor_zone: Dict[int, bool] = {}  # monitor_id -> bool
@@ -197,7 +152,6 @@ class AutohideController:
     def _signal_handler(self, signum, frame) -> None:
         """Handle shutdown signals."""
         log.info("Received signal %s, shutting down...", signum)
-        self._shutdown_requested = True
         self._running = False
 
     def initialize(self) -> bool:
@@ -211,7 +165,7 @@ class AutohideController:
                 return False
 
             # Initialize state engine
-            self._state_engine = StateEngine(self._config)
+            self._state_engine = StateEngine()
 
             # Initialize fullscreen handler
             self._fullscreen_handler = FullscreenHandler()
@@ -425,40 +379,20 @@ class AutohideController:
         """Sync waybar state based on current conditions."""
         # Show monitors should ALWAYS be visible
         if self._is_show_monitor(monitor_id):
-            # Ensure instance state is VISIBLE
             instance.state = WaybarState.VISIBLE
-            # CRITICAL: Also set the StateEngine's monitor state to VISIBLE
-            # so decide_transitions doesn't try to transition it
-            monitor_state = self._state_engine.get_or_create_monitor_state(monitor_id)
-            monitor_state.current_state = WaybarState.VISIBLE
             return
 
-        # For autohide monitors, check current conditions
-        cursor_monitor = None
-        if self._cursor:
-            cursor_monitor = self._state_engine.get_cursor_monitor(
-                self._cursor,
-                self._monitors,
-            )
-
         should_show = self._state_engine.should_show(
-            monitor_id,
-            cursor_monitor,
-            self._cursor or CursorPosition(0, 0),
+            cursor_in_sensor_zone=self._cursor_in_sensor_zone.get(monitor_id, False),
         )
 
-        # Update instance state to match actual visibility
-        # CRITICAL: Also update StateEngine's monitor state to prevent double-toggle
-        monitor_state = self._state_engine.get_or_create_monitor_state(monitor_id)
         if should_show:
             instance.state = WaybarState.VISIBLE
-            monitor_state.current_state = WaybarState.VISIBLE
         else:
             # Waybar starts visible. Keep state matching reality until delayed
             # startup hide actually toggles it, otherwise early cursor events can
             # invert actual and tracked visibility.
             instance.state = WaybarState.VISIBLE
-            monitor_state.current_state = WaybarState.VISIBLE
 
             self._startup_hides[monitor_id] = PendingStartupHide(
                 instance=instance,
@@ -497,10 +431,6 @@ class AutohideController:
             except RuntimeError:
                 continue
 
-            self._waybar_manager.set_state(monitor_id, WaybarState.HIDDEN)
-            self._state_engine.get_or_create_monitor_state(
-                monitor_id
-            ).current_state = WaybarState.HIDDEN
             log.info("Monitor %s: hidden after startup grace period", monitor_id)
 
     def _cursor_in_bar_zone(self, monitor_id: int) -> bool:
@@ -525,13 +455,12 @@ class AutohideController:
     def _refresh_state(self) -> None:
         """Refresh state from Hyprland.
 
-        Uses a single ``hyprctl -j monitors`` call to obtain monitors,
-        active workspace IDs, and the per-monitor workspace mapping.
+        Uses a single ``hyprctl -j monitors`` call to obtain monitors and
+        their active workspace mapping.
         """
         try:
             (
                 self._monitors,
-                self._active_workspaces,
                 self._active_workspaces_by_monitor,
             ) = self._hyprland.get_monitors_and_workspaces()
             self._clients = self._hyprland.get_clients()
@@ -867,7 +796,6 @@ class AutohideController:
             monitor_name = old_monitor_names.get(monitor_id)
             log.info(f"Removing waybar for monitor {monitor_id} ({monitor_name})")
             self._waybar_manager.kill_monitor(monitor_id)
-            self._state_engine.remove_monitor_state(monitor_id)
             self._fullscreen_handler.remove_monitor(monitor_id)
             self._exit_checks.pop(monitor_id, None)
             self._cursor_in_sensor_zone.pop(monitor_id, None)
@@ -1018,9 +946,7 @@ class AutohideController:
                         relative_y = cursor_pos.y - monitor.y
 
                         # Calculate sensor zone height from config
-                        sensor_zone_height = (
-                            self._config.visible_cursor_height
-                        )
+                        sensor_zone_height = self._config.visible_cursor_height
 
                         # If cursor is below the sensor zone, it's likely been moved
                         if (
@@ -1049,9 +975,6 @@ class AutohideController:
 
     def _update_visibility(self) -> None:
         """Update waybar visibility based on current state."""
-        # Build cursor position from sensor state
-        self._cursor = self._get_cursor_position_for_decision()
-
         # Use cached workspace mapping (populated by _refresh_state)
         active_workspaces_by_monitor = self._active_workspaces_by_monitor
 
@@ -1070,11 +993,9 @@ class AutohideController:
                 else:
                     self._cursor_manager.show_sensor(monitor.name)
 
-        # Decide transitions
-        transitions = self._state_engine.decide_transitions(
+        # Decide desired states; WaybarInstance remains the visibility authority.
+        desired_states = self._state_engine.decide_states(
             managed_monitor_ids=self._waybar_manager.get_all_ids(),
-            cursor=self._cursor or CursorPosition(0, 0),
-            monitors=self._monitors,
             active_workspaces_by_monitor=active_workspaces_by_monitor,
             cursor_in_sensor_zone=self._cursor_in_sensor_zone,
             autohide_monitor_ids=self._resolved_selection.autohide_ids,
@@ -1084,9 +1005,13 @@ class AutohideController:
         )
 
         # Apply transitions with safety checks
-        for monitor_id, old_state, new_state in transitions:
+        for monitor_id, new_state in desired_states.items():
             instance = self._waybar_manager.get_instance(monitor_id)
             if instance:
+                old_state = instance.state
+                if old_state == new_state:
+                    continue
+
                 active_workspace = active_workspaces_by_monitor.get(monitor_id)
                 is_fullscreen = self._fullscreen_handler.is_fullscreen(
                     monitor_id, active_workspace
@@ -1101,10 +1026,6 @@ class AutohideController:
                         "Monitor %s: refusing hidden transition for always-show monitor",
                         monitor_id,
                     )
-                    self._state_engine.get_or_create_monitor_state(
-                        monitor_id
-                    ).current_state = WaybarState.VISIBLE
-                    self._waybar_manager.set_state(monitor_id, WaybarState.VISIBLE)
                     continue
 
                 pending_exit = self._exit_checks.get(monitor_id)
@@ -1118,10 +1039,6 @@ class AutohideController:
                         "Monitor %s: hide deferred, exit grace still pending",
                         monitor_id,
                     )
-                    self._state_engine.get_or_create_monitor_state(
-                        monitor_id
-                    ).current_state = old_state
-                    self._waybar_manager.set_state(monitor_id, old_state)
                     continue
 
                 # Skip if waybar is still in startup grace period
@@ -1134,10 +1051,6 @@ class AutohideController:
                         "Monitor %s: skipping toggle during startup grace period",
                         monitor_id,
                     )
-                    self._state_engine.get_or_create_monitor_state(
-                        monitor_id
-                    ).current_state = old_state
-                    self._waybar_manager.set_state(monitor_id, old_state)
                     continue
 
                 # Skip if process is not alive
@@ -1149,37 +1062,10 @@ class AutohideController:
 
                 try:
                     instance.toggle()
-                    self._waybar_manager.set_state(monitor_id, new_state)
                     log.info(f"Monitor {monitor_id}: {old_state} -> {new_state}")
                 except RuntimeError as e:
                     log.warning(f"Monitor {monitor_id}: toggle failed - {e}")
                     pass
-
-    def _get_cursor_position_for_decision(self) -> CursorPosition:
-        """Get cursor position for visibility decisions.
-
-        Simplified version - no longer queries actual cursor position.
-        Just uses sensor state to determine position.
-        """
-        # Default to 0,0 if no cursor in any sensor
-        default_pos = CursorPosition(0, 0)
-
-        # Find which monitor has cursor in sensor zone
-        for monitor_id, in_sensor in self._cursor_in_sensor_zone.items():
-            if in_sensor:
-                # Cursor is in sensor zone - position is near top
-                # Find the monitor to get its X position
-                for monitor in self._monitors:
-                    if monitor.id == monitor_id:
-                        # Return position at top center of this monitor
-                        return CursorPosition(
-                            monitor.x + monitor.width // 2,
-                            monitor.y + CursorSensor.TRIGGER_HEIGHT // 2,
-                        )
-
-        # No cursor in any sensor - return default
-        # We don't query actual position anymore to avoid subprocess overhead
-        return default_pos
 
     def _process_gtk_events(self) -> None:
         """Process pending GTK events (required for cursor sensor events).

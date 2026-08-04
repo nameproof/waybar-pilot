@@ -1,9 +1,9 @@
 """Waybar manager for handling multiple monitor instances."""
 
 import logging
-from typing import Dict, Iterator, List, Optional
+from typing import Dict, List, Optional
 
-from ..config import Config, WaybarState
+from ..config import Config
 from ..hyprland import Monitor
 from ..processes import find_named_pids, terminate_pids
 from .instance import WaybarInstance
@@ -105,17 +105,6 @@ class WaybarManager:
         """
         return self._instances.get(monitor_id)
 
-    def has_instance(self, monitor_id: int) -> bool:
-        """Check if waybar is running on a monitor.
-
-        Args:
-            monitor_id: Monitor ID
-
-        Returns:
-            True if waybar is running
-        """
-        return monitor_id in self._instances
-
     def kill_monitor(self, monitor_id: int) -> bool:
         """Kill waybar for a specific monitor.
 
@@ -189,14 +178,6 @@ class WaybarManager:
 
         return restarted
 
-    def get_all_instances(self) -> Iterator[WaybarInstance]:
-        """Iterate over all running instances.
-
-        Yields:
-            WaybarInstance objects
-        """
-        yield from self._instances.values()
-
     def get_all_ids(self) -> List[int]:
         """Get all monitor IDs with running waybar.
 
@@ -205,57 +186,6 @@ class WaybarManager:
         """
         return list(self._instances.keys())
 
-    def get_state(self, monitor_id: int) -> Optional[WaybarState]:
-        """Get current state for a monitor.
-
-        Args:
-            monitor_id: Monitor ID
-
-        Returns:
-            Current state if running, None otherwise
-        """
-        instance = self._instances.get(monitor_id)
-        return instance.state if instance else None
-
-    def set_state(self, monitor_id: int, state: WaybarState) -> bool:
-        """Set state for a monitor (updates tracking, doesn't toggle).
-
-        Args:
-            monitor_id: Monitor ID
-            state: New state
-
-        Returns:
-            True if updated, False if monitor not found
-        """
-        instance = self._instances.get(monitor_id)
-        if instance:
-            instance.state = state
-            return True
-        return False
-
-    def toggle_monitor(self, monitor_id: int) -> bool:
-        """Toggle waybar visibility for a monitor.
-
-        Args:
-            monitor_id: Monitor ID
-
-        Returns:
-            True if toggled, False if not running
-        """
-        instance = self._instances.get(monitor_id)
-        if instance:
-            instance.toggle()
-            return True
-        return False
-
     def __len__(self) -> int:
         """Number of running waybar instances."""
         return len(self._instances)
-
-    def __contains__(self, monitor_id: int) -> bool:
-        """Check if monitor has waybar running."""
-        return monitor_id in self._instances
-
-    def __iter__(self) -> Iterator[WaybarInstance]:
-        """Iterate over all instances."""
-        return iter(self._instances.values())

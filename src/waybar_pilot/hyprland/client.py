@@ -7,7 +7,7 @@ import subprocess
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 
-from .models import Monitor, Client, CursorPosition, Workspace
+from .models import Monitor, Client, CursorPosition
 
 
 class HyprlandConnectionError(Exception):
@@ -172,22 +172,20 @@ class HyprlandClient:
 
     def get_monitors_and_workspaces(
         self,
-    ) -> Tuple[List[Monitor], List[int], Dict[int, int]]:
-        """Get monitors, active workspace IDs, and per-monitor workspace mapping.
+    ) -> Tuple[List[Monitor], Dict[int, int]]:
+        """Get monitors and their active workspace mapping.
 
-        Single ``hyprctl -j monitors`` call that returns all three
-        pieces of data instead of three separate subprocess invocations.
+        Both values come from one ``hyprctl -j monitors`` snapshot.
 
         Returns:
-            Tuple of (monitors, active_workspace_ids, workspaces_by_monitor)
+            Tuple of (monitors, workspaces_by_monitor)
         """
         stdout = self._run_hyprctl(["-j", "monitors"])
         data = json.loads(stdout)
 
         monitors = [Monitor.from_dict(m) for m in data]
-        active_ids = [int(m["activeWorkspace"]["id"]) for m in data]
         by_monitor = {int(m["id"]): int(m["activeWorkspace"]["id"]) for m in data}
-        return monitors, active_ids, by_monitor
+        return monitors, by_monitor
 
     def get_clients(self) -> List[Client]:
         """Get all window clients.
@@ -202,40 +200,6 @@ class HyprlandClient:
         data = json.loads(stdout)
         return [Client.from_dict(c) for c in data]
 
-    def get_workspaces(self) -> List[Workspace]:
-        """Get all workspaces.
-
-        Returns:
-            List of Workspace objects
-
-        Raises:
-            HyprlandError: If unable to query workspaces
-        """
-        stdout = self._run_hyprctl(["-j", "workspaces"])
-        data = json.loads(stdout)
-        return [Workspace(id=w["id"], name=w["name"]) for w in data]
-
-    def get_active_workspace_ids(self) -> List[int]:
-        """Get IDs of active workspaces on all monitors.
-
-        Returns:
-            List of active workspace IDs
-        """
-        # Each monitor has an activeWorkspace field
-        stdout = self._run_hyprctl(["-j", "monitors"])
-        data = json.loads(stdout)
-        return [m["activeWorkspace"]["id"] for m in data]
-
-    def get_active_workspaces_by_monitor(self) -> Dict[int, int]:
-        """Get active workspace ID for each monitor.
-
-        Returns:
-            Dict mapping monitor ID to active workspace ID
-        """
-        stdout = self._run_hyprctl(["-j", "monitors"])
-        data = json.loads(stdout)
-        return {int(m["id"]): int(m["activeWorkspace"]["id"]) for m in data}
-
     def get_cursor_position(self) -> CursorPosition:
         """Get current cursor position.
 
@@ -247,22 +211,6 @@ class HyprlandClient:
         """
         stdout = self._run_hyprctl(["cursorpos"])
         return CursorPosition.from_string(stdout)
-
-    def get_monitor_from_position(self, x: int, y: int) -> Optional[int]:
-        """Determine which monitor contains a point.
-
-        Args:
-            x: X coordinate
-            y: Y coordinate
-
-        Returns:
-            Monitor ID if point is on a monitor, None otherwise
-        """
-        monitors = self.get_monitors()
-        for monitor in monitors:
-            if monitor.contains_point(x, y):
-                return monitor.id
-        return None
 
     def get_socket2_path(self) -> Path:
         """Get the path to Hyprland's socket2 for events.

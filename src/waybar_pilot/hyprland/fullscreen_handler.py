@@ -63,14 +63,8 @@ class FullscreenHandler:
         """Update fullscreen state from current client list.
 
         Records every workspace that has a fullscreen window, keyed by
-        monitor. The ``mapped`` field is intentionally NOT used as a
-        filter: during workspace switches the compositor flips ``mapped``
-        asynchronously, and a fullscreen window being mapped in on the
-        newly active workspace may briefly report ``mapped: false``.
-        Filtering on it would drop the workspace from our state for one
-        tick, causing ``is_fullscreen`` to return False and the bar to
-        flash. The ``hidden`` filter is kept because ``hidden: true`` is
-        an explicit user action, not a transient transition.
+        monitor. Hidden windows are excluded because that is an explicit
+        user action rather than a transient workspace transition.
 
         The active-workspace mapping is NOT used here either. It comes
         from a separate ``hyprctl -j monitors`` call that can be out of
@@ -142,28 +136,3 @@ class FullscreenHandler:
 
         # Only consider it fullscreen if the active workspace has one
         return active_workspace_id in state.fullscreen_workspaces
-
-    def get_fullscreen_monitors(self) -> Set[int]:
-        """Get set of monitor IDs currently in fullscreen mode."""
-        return {
-            monitor_id
-            for monitor_id, state in self._states.items()
-            if state.is_fullscreen
-        }
-
-    def get_state_changes(self) -> Dict[int, bool]:
-        """Get monitors that changed fullscreen state since last check.
-
-        Returns:
-            Dict mapping monitor_id to new fullscreen state (True=entered, False=exited)
-        """
-        # This could be expanded to track actual changes if needed
-        # For now, just return current states
-        return {
-            monitor_id: state.is_fullscreen
-            for monitor_id, state in self._states.items()
-        }
-
-    def reset(self) -> None:
-        """Reset all fullscreen states (e.g., on reconnection)."""
-        self._states.clear()

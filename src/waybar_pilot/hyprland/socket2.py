@@ -165,18 +165,6 @@ class Socket2Listener:
             pass
         return None
 
-    def get_monitor_id_from_name(self, name: str) -> Optional[int]:
-        """Look up monitor ID from name using cache.
-
-        Args:
-            name: Monitor name (e.g., "DP-1")
-
-        Returns:
-            Monitor ID if in cache, None otherwise
-        """
-        with self._lock:
-            return self._monitor_name_to_id.get(name)
-
     def _listen_loop(self) -> None:
         """Main listening loop - runs in background thread."""
         while self._running:

@@ -121,14 +121,12 @@ class CursorManager:
         self,
         event_type: str,
         monitor_name: str,
-        y: Optional[int] = None,
     ) -> None:
         """Handle events from sensors and queue them for controller.
 
         Args:
             event_type: "enter" or "leave"
             monitor_name: Monitor that triggered the event
-            y: Y coordinate (for leave events)
         """
         from .events import CursorEnter, CursorLeave
 
@@ -140,7 +138,7 @@ class CursorManager:
         if event_type == "enter":
             self._event_queue.put(CursorEnter(monitor_id, monitor_name))
         elif event_type == "leave":
-            self._event_queue.put(CursorLeave(monitor_id, monitor_name, y or 0))
+            self._event_queue.put(CursorLeave(monitor_id, monitor_name))
 
     def create_sensor_for_monitor(self, monitor: Monitor) -> bool:
         """Create a sensor for the given monitor.
@@ -185,8 +183,6 @@ class CursorManager:
             sensor = CursorSensor(
                 monitor_name=monitor.name,
                 monitor_width=monitor.width,
-                monitor_x=monitor.x,
-                monitor_y=monitor.y,
                 gdk_monitor=gdk_monitor,
                 event_callback=self._on_sensor_event,
             )
@@ -287,10 +283,6 @@ class CursorManager:
         )
         if failed_monitors:
             log.info(f"Pending sensor creation: {[m.name for m in failed_monitors]}")
-
-    def is_gtk_available(self) -> bool:
-        """Check if GTK and display are available."""
-        return self._gtk_display is not None
 
     def get_sensor_count(self) -> int:
         """Get number of active sensors."""

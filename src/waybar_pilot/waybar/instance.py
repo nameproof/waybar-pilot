@@ -128,7 +128,9 @@ class WaybarInstance:
             normalized = self._strip_jsonc_trailing_commas(without_comments)
             config_content = json.loads(normalized)
         except (json.JSONDecodeError, OSError) as exc:
-            raise RuntimeError(f"Failed to parse Waybar config {base_config}: {exc}") from exc
+            raise RuntimeError(
+                f"Failed to parse Waybar config {base_config}: {exc}"
+            ) from exc
 
         if isinstance(config_content, dict):
             return config_content
@@ -142,7 +144,9 @@ class WaybarInstance:
 
     def _set_monitor_output(self, config_content: dict | list) -> None:
         """Restrict every configured bar to this instance's monitor."""
-        configs = config_content if isinstance(config_content, list) else [config_content]
+        configs = (
+            config_content if isinstance(config_content, list) else [config_content]
+        )
         for bar_config in configs:
             bar_config["output"] = self.monitor_name
 
@@ -288,11 +292,6 @@ class WaybarInstance:
         except ProcessLookupError:
             raise RuntimeError("Waybar process died during toggle")
 
-    def show(self) -> None:
-        """Show waybar if currently hidden."""
-        if self._state == WaybarState.HIDDEN:
-            self.toggle()
-
     def hide(self) -> None:
         """Hide waybar if currently visible."""
         if self._state == WaybarState.VISIBLE:
@@ -322,11 +321,6 @@ class WaybarInstance:
                 pass
         self._config_path = None
         self._process = None
-
-    def restart(self) -> None:
-        """Restart the waybar process."""
-        self.kill()
-        self._start_process()
 
     def __del__(self):
         """Cleanup on garbage collection."""

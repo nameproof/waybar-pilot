@@ -2,7 +2,7 @@
 
 from .client import HyprlandClient, HyprlandConnectionError, HyprlandError
 from .fullscreen_handler import FullscreenHandler
-from .models import Client, CursorPosition, Monitor, Workspace
+from .models import Client, CursorPosition, Monitor
 from .socket2 import EventType, HyprlandEvent, Socket2Listener
 
 __all__ = [
@@ -16,7 +16,6 @@ __all__ = [
     "Client",
     "CursorPosition",
     "Monitor",
-    "Workspace",
     # Socket2
     "EventType",
     "HyprlandEvent",

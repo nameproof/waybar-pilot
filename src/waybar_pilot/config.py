@@ -30,12 +30,6 @@ class ResolvedMonitorSelection:
     unresolved_autohide: List[str]
     unresolved_show: List[str]
 
-    def is_autohide_monitor(self, monitor_id: int) -> bool:
-        """Check if a monitor should use autohide behavior."""
-        if not self.monitor_lists_configured:
-            return True
-        return monitor_id in self.autohide_ids
-
     def is_show_monitor(self, monitor_id: int) -> bool:
         """Check if a monitor should always show the waybar."""
         if monitor_id in self.show_ids:
