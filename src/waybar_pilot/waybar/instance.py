@@ -93,6 +93,59 @@ class WaybarInstance:
 
         return "".join(result)
 
+    @staticmethod
+    def _strip_jsonc_trailing_commas(text: str) -> str:
+        """Remove trailing commas outside strings from JSONC text."""
+        result = []
+        in_string = False
+
+        for index, ch in enumerate(text):
+            if ch == '"':
+                backslash_count = 0
+                previous = index - 1
+                while previous >= 0 and text[previous] == "\\":
+                    backslash_count += 1
+                    previous -= 1
+                if backslash_count % 2 == 0:
+                    in_string = not in_string
+
+            if ch == "," and not in_string:
+                next_index = index + 1
+                while next_index < len(text) and text[next_index].isspace():
+                    next_index += 1
+                if next_index < len(text) and text[next_index] in "]}":
+                    continue
+
+            result.append(ch)
+
+        return "".join(result)
+
+    def _load_base_config(self, base_config: Path) -> dict | list:
+        """Load a Waybar JSONC object or array without discarding parse errors."""
+        try:
+            raw = base_config.read_text()
+            without_comments = self._strip_jsonc_comments(raw)
+            normalized = self._strip_jsonc_trailing_commas(without_comments)
+            config_content = json.loads(normalized)
+        except (json.JSONDecodeError, OSError) as exc:
+            raise RuntimeError(f"Failed to parse Waybar config {base_config}: {exc}") from exc
+
+        if isinstance(config_content, dict):
+            return config_content
+        if isinstance(config_content, list) and all(
+            isinstance(item, dict) for item in config_content
+        ):
+            return config_content
+        raise RuntimeError(
+            f"Waybar config {base_config} must contain an object or array of objects"
+        )
+
+    def _set_monitor_output(self, config_content: dict | list) -> None:
+        """Restrict every configured bar to this instance's monitor."""
+        configs = config_content if isinstance(config_content, list) else [config_content]
+        for bar_config in configs:
+            bar_config["output"] = self.monitor_name
+
     def _create_config(self) -> Path:
         """Create a temporary config file for this monitor.
 
@@ -111,18 +164,12 @@ class WaybarInstance:
         if not base_config.exists():
             base_config = config_dir / "config"
 
-        config_content = {}
+        config_content: dict | list = {}
         if base_config.exists():
-            try:
-                with open(base_config) as f:
-                    raw = f.read()
-                stripped = self._strip_jsonc_comments(raw)
-                config_content = json.loads(stripped)
-            except (json.JSONDecodeError, IOError):
-                config_content = {}
+            config_content = self._load_base_config(base_config)
 
         # Set output to this specific monitor
-        config_content["output"] = self.monitor_name
+        self._set_monitor_output(config_content)
 
         # Create temp file with proper cleanup handling
         fd, path = tempfile.mkstemp(
