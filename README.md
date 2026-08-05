@@ -17,7 +17,6 @@ https://github.com/user-attachments/assets/55fc5541-eec3-4c07-b1bc-c15e5e6252a7
 - **Cursor reveal**: Shows waybar when the cursor touches its configured top or bottom screen edge
 - **Multi-monitor support**: Per-monitor configuration (autohide vs always-show)
 - **Fullscreen awareness**: Disables cursor sensors during fullscreen
-- **Hysteresis**: Different thresholds for showing vs keeping visibility to prevent flicker
 - **Workspace-aware**: Only hides waybar when fullscreen is on the active workspace
 - **Event-driven**: Uses Hyprland socket2 for instant response to window changes
 - **Monitor hotplug**: Handles monitor connect/disconnect automatically
@@ -32,13 +31,6 @@ https://github.com/user-attachments/assets/55fc5541-eec3-4c07-b1bc-c15e5e6252a7
 ## Installation
 
 If `pipx` is missing, install your distro's package first.
-
-> [!NOTE]
-> If you previously installed waybar-pilot from `git clone`, uninstall it before switching to the GitHub installation:
->
-> ```bash
-> pipx uninstall waybar-pilot
-> ```
 
 Recommended install:
 
@@ -60,31 +52,12 @@ Upgrade:
 pipx upgrade --system-site-packages waybar-pilot
 ```
 
-## Development
-
-```bash
-git clone https://github.com/nameproof/waybar-pilot.git
-cd waybar-pilot
-```
-
-- `make check-runtime`: check detailed requirements
-- `make sync`: create or update the local `uv` environment for dev tools
-- `make format`: run Ruff formatting
-- `make lint`: run Ruff checks
-- `PYTHONPATH=src python3 -m waybar_pilot`: run the app from the source tree with system Python
-
 ## Usage
 
 Run the installed command:
 
 ```bash
 waybar-pilot
-```
-
-Or run directly from the checkout while developing:
-
-```bash
-PYTHONPATH=src python3 -m waybar_pilot
 ```
 
 ### Recommended Usage
@@ -129,14 +102,8 @@ exec-once = waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
 ### Examples
 
 ```bash
-# Stop all running waybar-pilot and owned waybar processes
-waybar-pilot -s
-
 # Auto-hide on DP-1, always show on eDP-1
 waybar-pilot --hide-monitors DP-1 --show-monitors eDP-1
-
-# Keep the bar visible farther away from its screen edge
-waybar-pilot --hide-margin 40
 
 # Custom bar height with specific monitors
 waybar-pilot --bar-height 30 --hide-monitors DP-1,HDMI-A-1 --show-monitors eDP-1
@@ -144,12 +111,22 @@ waybar-pilot --bar-height 30 --hide-monitors DP-1,HDMI-A-1 --show-monitors eDP-1
 # Restart cleanly with custom settings
 waybar-pilot -r --hide-monitors DP-1 --hide-margin 30
 
-# Restart and see logs for debugging
-waybar-pilot -r -i --hide-monitors DP-1,HDMI-A-1
-
 # Restart with debug logs
 waybar-pilot -r -i --debug --hide-monitors DP-1
 ```
+
+## Development
+
+```bash
+git clone https://github.com/nameproof/waybar-pilot.git
+cd waybar-pilot
+```
+
+- `make check-runtime`: check detailed requirements
+- `make sync`: create or update the local `uv` environment for dev tools
+- `make format`: run Ruff formatting
+- `make lint`: run Ruff checks
+- `PYTHONPATH=src python3 -m waybar_pilot`: run the app from the source tree with system Python
 
 ## License
 

@@ -644,8 +644,6 @@ def main() -> int:
     )
     parser.add_argument(
         "--hide-margin",
-        "--overlap",
-        dest="hide_margin",
         type=_non_negative_int,
         default=10,
         help="Extra cursor travel away from the bar before hiding (default: 10)",
